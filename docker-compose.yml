@@ -45,5 +45,9 @@ services:
     ports:
       - "3010:3010"
 
+networks:
+  shared-network:
+    external: true
+
 volumes:
   chat_pgdata:
