@@ -29,7 +29,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: 3010
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: chat
@@ -43,7 +43,7 @@ services:
       FIREBASE_CREDENTIALS_BASE64: ""
       FIREBASE_PROJECT_ID: ""
     ports:
-      - "3000:3000"
+      - "3010:3010"
 
 volumes:
   chat_pgdata:
