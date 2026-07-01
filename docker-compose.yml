@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: chat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chatdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - chat_pgdata:/var/lib/postgresql/data
+      - ./backend/db/0001-init.sql:/docker-entrypoint-initdb.d/0001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat -d chatdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: truepilot2026/chat:latest
+    build:
+      context: ./backend
+    container_name: chat-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: chat
+      DB_PASSWORD: chat
+      DB_NAME: chatdb
+      JWT_SECRET: change-me-in-production-please
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: "*"
+      SOCKET_IO_PATH: /socket.io
+      # Optional Firebase service account JSON (base64). When empty, push service logs instead of sending.
+      FIREBASE_CREDENTIALS_BASE64: ""
+      FIREBASE_PROJECT_ID: ""
+    ports:
+      - "3000:3000"
+
+volumes:
+  chat_pgdata:
