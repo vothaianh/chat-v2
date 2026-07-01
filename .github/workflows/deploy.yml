@@ -38,7 +38,7 @@ jobs:
 
       - name: SCP files to server
         run: |
-          scp docker-compose.yaml ubuntu@ssh.truepilot.io:/apps/chat
+          scp docker-compose.yml ubuntu@ssh.truepilot.io:/apps/chat
           scp backend/db/0001-init.sql ubuntu@ssh.truepilot.io:/apps/chat/backend/db/0001-init.sql
 
       - name: Deploy via SSH
