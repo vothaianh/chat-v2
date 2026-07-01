@@ -17,6 +17,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - shared-network
 
   backend:
     image: truepilot2026/chat:latest
@@ -44,6 +46,8 @@ services:
       FIREBASE_PROJECT_ID: ""
     ports:
       - "3010:3010"
+    networks:
+      - shared-network
 
 networks:
   shared-network:
