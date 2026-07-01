@@ -15,5 +15,5 @@ RUN npm install --omit=dev
 COPY --from=build /app/dist ./dist
 
 # Firebase credentials are optional; mount when available
-EXPOSE 3000
+EXPOSE 3010
 CMD ["node", "dist/main.js"]
