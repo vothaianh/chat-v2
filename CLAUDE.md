@@ -1,5 +1,7 @@
 # Chat — Flutter + NestJS instant messaging
 
+1. When update backend, need to run docker compose up -d again
+
 See `README.md` for full setup. Key constraints for anyone working in this repo:
 
 - **Messages are never persisted.** The DB holds only users, device tokens, conversations, and members.

@@ -42,8 +42,9 @@ services:
       CORS_ORIGIN: "*"
       SOCKET_IO_PATH: /socket.io
       # Optional Firebase service account JSON (base64). When empty, push service logs instead of sending.
-      FIREBASE_CREDENTIALS_BASE64: ""
-      FIREBASE_PROJECT_ID: ""
+      # Value is supplied via the git-ignored root .env file (see .env.example).
+      FIREBASE_CREDENTIALS_BASE64: "${FIREBASE_CREDENTIALS_BASE64:-}"
+      FIREBASE_PROJECT_ID: "${FIREBASE_PROJECT_ID:-chat-e4afe}"
     ports:
       - "3010:3010"
     networks:

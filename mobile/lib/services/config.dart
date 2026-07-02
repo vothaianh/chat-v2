@@ -1,13 +1,21 @@
-/// Central configuration. Change BASE_URL to point at your backend host.
-/// For Android emulators use http://10.0.2.2:3000; for iOS sim/macOS use http://localhost:3000.
-class Config {
-  // Allow override via --dart-define=BASE_URL=...
-  // Note: the iOS simulator shares the host's network, so http://localhost:3000 works.
-  // For Android emulators use http://10.0.2.2:3000; for physical devices use the LAN IP.
-  static const String baseUrl =
-      String.fromEnvironment('BASE_URL', defaultValue: 'http://localhost:3000');
+import '../config/app_config.dart';
 
-  static const String socketUrl = baseUrl;
+/// Runtime configuration facade. The active environment (dev/prod) and its
+/// endpoint come from [AppConfig], selected by the build flavor. See
+/// `lib/config/app_config.dart` and the `main_dev.dart` / `main_prod.dart`
+/// entrypoints.
+class Config {
+  static AppConfig _active = AppConfig.resolve();
+
+  /// Set by the flavor entrypoint before the app runs.
+  static void init(AppConfig config) => _active = config;
+
+  static AppConfig get active => _active;
+
+  static String get baseUrl => _active.baseUrl;
+  static String get socketUrl => _active.baseUrl;
+  static String get appName => _active.appName;
+  static bool get isProd => _active.isProd;
 
   /// Static sticker set (asset references). Stickers are bundled, GIFs are URLs.
   static const List<String> stickers = [

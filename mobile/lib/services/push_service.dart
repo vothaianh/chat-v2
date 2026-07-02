@@ -62,6 +62,14 @@ class PushService {
 
     FirebaseMessaging.onBackgroundMessage(onBackgroundMessage);
 
+    // FCM owns the iOS notification-center delegate; without this it suppresses
+    // any notification (including our local ones) while the app is foreground.
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
     // Foreground messages: show a local notification so the user sees them.
     FirebaseMessaging.onMessage.listen(_handleForeground);
 
@@ -123,6 +131,43 @@ class PushService {
       debugPrint('FCM token registered with backend ($platform)');
     } catch (e) {
       debugPrint('FCM register failed: $e');
+    }
+  }
+
+  /// Shows an in-app banner for a message delivered over the socket while the
+  /// app is in the foreground. FCM covers the offline/background case; this
+  /// covers online delivery, which never triggers an FCM `onMessage`.
+  Future<void> showMessageNotification({
+    required String title,
+    required String body,
+    String? conversationId,
+  }) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    try {
+      await init();
+      await _local.show(
+        id: (conversationId ?? title).hashCode,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'chat_messages',
+            'Chat messages',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBanner: true,
+            presentList: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: conversationId,
+      );
+    } catch (e) {
+      debugPrint('local notification failed: $e');
     }
   }
 

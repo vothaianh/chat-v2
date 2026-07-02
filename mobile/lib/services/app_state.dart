@@ -23,6 +23,8 @@ class AppState extends ChangeNotifier {
   final Map<String, bool> _online = {};
   // typing: conversationId -> userId -> bool
   final Map<String, Set<String>> _typingUsers = {};
+  // the conversation currently open on screen (no banner for it)
+  String? _activeConversationId;
 
   bool get bootstrapped => _bootstrapped;
   bool get loading => _loading;
@@ -279,8 +281,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set by [ChatScreen] on open/close so we don't banner the chat you're in.
+  void setActiveConversation(String? conversationId) {
+    _activeConversationId = conversationId;
+  }
+
   void _onMessage(ChatMessage m) {
     _addMessage(m.conversationId, m);
+    // In-app banner for messages from others that aren't in the open chat.
+    // (FCM handles offline recipients; online delivery arrives here instead.)
+    if (m.senderId != currentUserId && m.conversationId != _activeConversationId) {
+      push.showMessageNotification(
+        title: (m.senderFullName?.isNotEmpty ?? false)
+            ? m.senderFullName!
+            : (m.senderUsername?.isNotEmpty ?? false ? m.senderUsername! : 'New message'),
+        body: _messagePreview(m),
+        conversationId: m.conversationId,
+      );
+    }
+  }
+
+  String _messagePreview(ChatMessage m) {
+    switch (m.type) {
+      case MessageType.text:
+        return m.text ?? '';
+      case MessageType.sticker:
+        return m.media ?? '🙂';
+      case MessageType.gif:
+        return (m.caption?.isNotEmpty ?? false) ? m.caption! : 'GIF';
+    }
   }
 
   void _onAck(Map<String, dynamic> ack) {

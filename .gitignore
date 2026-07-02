@@ -2,6 +2,7 @@
 backend/node_modules/
 backend/dist/
 backend/.env
+backend/chat-e4afe-firebase-adminsdk-fbsvc-3e0b31aed4.json
 *.log
 
 # Flutter
@@ -14,6 +15,7 @@ mobile/ios/Pods/
 mobile/android/.gradle/
 mobile/coverage/
 mobile/ios/Runner/GoogleService-Info.plist
+mobile/ios/Runner/AuthKey_J4L9CLWU75.p8
 mobile/android/app/google-services.json
 
 # Firebase config — each contributor uses their own project.
@@ -25,3 +27,5 @@ mobile/GoogleService-Info.plist
 .DS_Store
 *.iml
 .idea/
+# local secrets
+.env

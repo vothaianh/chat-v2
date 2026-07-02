@@ -20,17 +20,20 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtrl = ScrollController();
   bool _isTyping = false;
   Timer? _typingTimer;
+  late final AppState _app;
 
   @override
   void initState() {
     super.initState();
-    final app = context.read<AppState>();
-    app.socket.joinConversation(widget.conversation.id);
-    app.socket.markRead(widget.conversation.id);
+    _app = context.read<AppState>();
+    _app.socket.joinConversation(widget.conversation.id);
+    _app.socket.markRead(widget.conversation.id);
+    _app.setActiveConversation(widget.conversation.id);
   }
 
   @override
   void dispose() {
+    _app.setActiveConversation(null);
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _typingTimer?.cancel();

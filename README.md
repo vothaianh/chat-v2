@@ -58,6 +58,7 @@ and identity — never a message body:
   via `UsersService`, and emits a `mention:new` event to each mentioned user's personal socket room.
 
 Entities (all with UUID PKs from the `uuid-ossp` extension):
+
 - `user` — username, full_name, email, password_hash, avatar_url, last_seen_at
 - `device_token` — user_id, token, platform (multi-device)
 - `conversation` — type (private|group), title, avatar_url
@@ -77,14 +78,16 @@ docker compose up -d --build
 ```
 
 This starts:
+
 - **postgres** (port 5433 on host → 5432 in net) with `uuid-ossp` enabled and the schema in `backend/db/0001-init.sql`
 - **backend** (port 3000) — NestJS API + Socket.io gateway
 
 > Host port for Postgres is `5433` to avoid clashes with a local Postgres. Inside the compose network the backend connects to `postgres:5432`, so the host mapping doesn't matter.
 
 Verify:
+
 ```bash
-curl -s http://localhost:3000/api/auth/login -X POST -H 'Content-Type: application/json' -d '{}' -i   # expect 400 (validation) = up
+curl -s http://localhost:3010/api/auth/login -X POST -H 'Content-Type: application/json' -d '{}' -i   # expect 400 (validation) = up
 ```
 
 ### Run the backend locally (without Docker) instead
@@ -114,23 +117,56 @@ message, and you'll see `[FcmPushService] [push:stub] -> 2 device(s)` in the bac
 
 ## 3. Run the Flutter app
 
-The app talks to the backend at `http://localhost:3000` by default.
+The app ships with two **flavors**, each with its own endpoint (defined in
+`mobile/lib/config/app_config.dart`):
+
+| Flavor   | Endpoint                        | Entrypoint           | App name / bundle                                   |
+| -------- | ------------------------------- | -------------------- | --------------------------------------------------- |
+| **dev**  | `http://localhost:3010`         | `lib/main_dev.dart`  | TruePilot Chat Dev · `com.truepilot.chat.dev` (iOS) |
+| **prod** | `https://chat-api.truepilot.io` | `lib/main_prod.dart` | TruePilot Chat · `com.truepilot.chat`               |
 
 ```bash
 cd mobile
 flutter pub get
-flutter run                    # macOS desktop / web / iOS sim — uses localhost
+
+# Development (local backend)
+flutter run --flavor dev  -t lib/main_dev.dart
+
+# Production (chat-api.truepilot.io)
+flutter run --flavor prod -t lib/main_prod.dart
 ```
 
 ### Pointing at a different backend / emulator
 
-- **Android emulator:** the emulator's `localhost` is the host's `10.0.2.2`, so run with:
+- **Android emulator:** the emulator's `localhost` is the host's `10.0.2.2`, so override:
   ```bash
-  flutter run --dart-define=BASE_URL=http://10.0.2.2:3000
+  flutter run --flavor dev -t lib/main_dev.dart --dart-define=BASE_URL=http://10.0.2.2:3000
   ```
 - **Physical device / LAN:** use your machine's LAN IP, e.g. `--dart-define=BASE_URL=http://192.168.x.x:3000`.
+- The iOS **simulator** shares the host network, so `dev`'s `localhost` works as-is.
 
-`Config.baseUrl` in `mobile/lib/services/config.dart` is the single source of truth for the API host.
+`AppConfig` (`mobile/lib/config/app_config.dart`) is the single source of truth; a `BASE_URL`
+dart-define overrides the flavor's endpoint for ad-hoc testing.
+
+### Build a release IPA (iOS)
+
+```bash
+# Production IPA → build/ios/ipa/*.ipa
+flutter build ipa --flavor prod -t lib/main_prod.dart
+# No distribution cert yet? use a development export:
+flutter build ipa --flavor prod -t lib/main_prod.dart --export-method development
+```
+
+Android APK/AAB per flavor:
+
+```bash
+flutter build apk    --flavor prod -t lib/main_prod.dart --release
+flutter build appbundle --flavor prod -t lib/main_prod.dart --release
+```
+
+> iOS build configs (`Debug/Release/Profile-{dev,prod}`) and the `dev`/`prod` schemes live in
+> `mobile/ios/Runner.xcodeproj`; Android `dev`/`prod` product flavors are in
+> `mobile/android/app/build.gradle.kts`.
 
 ### Using the app
 
@@ -148,6 +184,7 @@ Push is fully wired on both sides. The app id is **`com.truepilot.chat`** (match
 config files provided).
 
 **How it works:**
+
 - **Mobile** (`firebase_core` + `firebase_messaging` + `flutter_local_notifications`): on login the
   `PushService` (`mobile/lib/services/push_service.dart`) initializes Firebase, requests permission,
   fetches the FCM device token, and `POST`s it to `/api/devices/register`. Token refresh re-registers.
@@ -158,6 +195,7 @@ config files provided).
   credentials it logs `[push:stub]` and still works end-to-end (see the e2e tests).
 
 **Mobile Firebase config files** (already provided in this repo):
+
 - Android: `mobile/android/app/google-services.json` (package `com.truepilot.chat`)
 - iOS: `mobile/ios/Runner/GoogleService-Info.plist` (bundle `com.truepilot.chat`)
 
@@ -167,7 +205,7 @@ Firebase project values (Firebase Console → Project settings → Your apps), a
 into place.
 
 **Backend Firebase credentials** (server-side `firebase-admin`, needed for the server to actually
-*send* pushes):
+_send_ pushes):
 
 1. In the Firebase Console, Project settings → Service accounts → generate a new private key (JSON).
 2. Base64-encode it and set it as env vars:
@@ -193,31 +231,33 @@ so the backend never fails to boot without Firebase.
 
 ## API reference
 
-All under `http://localhost:3000/api` (JWT `Authorization: Bearer <token>` except auth endpoints).
+All under `http://localhost:3010/api` (JWT `Authorization: Bearer <token>` except auth endpoints).
 
-| Method | Path | Body | Notes |
-|---|---|---|---|
-| POST | `/auth/register` | `{ username, fullName, email, password }` | returns `{ accessToken, user }` |
-| POST | `/auth/login` | `{ login, password, fcmToken? }` | `login` = username or email |
-| GET  | `/users/:username` | — | public-user view (for tagging / starting chats) |
-| GET  | `/conversations` | — | list my conversations with members |
-| GET  | `/conversations/:id` | — | one conversation view |
-| POST | `/conversations/private` | `{ userId }` | creates or reuses a 1:1 |
-| POST | `/conversations/group` | `{ title?, memberIds: string[] }` | creates a group |
-| POST | `/conversations/:id/members` | `{ memberIds: string[] }` | add members |
-| POST | `/conversations/:id/read` | — | mark read |
-| POST | `/devices/register` | `{ token, platform? }` | register FCM token |
-| DELETE | `/devices/unregister` | `{ token }` | remove a token |
+| Method | Path                         | Body                                      | Notes                                           |
+| ------ | ---------------------------- | ----------------------------------------- | ----------------------------------------------- |
+| POST   | `/auth/register`             | `{ username, fullName, email, password }` | returns `{ accessToken, user }`                 |
+| POST   | `/auth/login`                | `{ login, password, fcmToken? }`          | `login` = username or email                     |
+| GET    | `/users/:username`           | —                                         | public-user view (for tagging / starting chats) |
+| GET    | `/conversations`             | —                                         | list my conversations with members              |
+| GET    | `/conversations/:id`         | —                                         | one conversation view                           |
+| POST   | `/conversations/private`     | `{ userId }`                              | creates or reuses a 1:1                         |
+| POST   | `/conversations/group`       | `{ title?, memberIds: string[] }`         | creates a group                                 |
+| POST   | `/conversations/:id/members` | `{ memberIds: string[] }`                 | add members                                     |
+| POST   | `/conversations/:id/read`    | —                                         | mark read                                       |
+| POST   | `/devices/register`          | `{ token, platform? }`                    | register FCM token                              |
+| DELETE | `/devices/unregister`        | `{ token }`                               | remove a token                                  |
 
 ### Socket.io events (path `/socket.io`, transport `websocket`, auth `{ token }`)
 
 Client → Server:
+
 - `message:send` `{ conversationId, type: 'text'|'sticker'|'gif', text?, media?, caption?, clientId? }`
 - `typing` `{ conversationId, isTyping }`
 - `message:read` `{ conversationId }`
 - `conversation:join` `{ conversationId }` (join a newly created conversation's room)
 
 Server → Client:
+
 - `message:new` — the message envelope (delivered live; **not** persisted)
 - `message:ack` `{ id, conversationId, createdAt }` — server receipt confirmation
 - `mention:new` `{ conversationId, fromUserId, fromUsername, username, preview, createdAt }`

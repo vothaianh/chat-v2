@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { DeviceToken } from './device-token.entity';
 
 @Injectable()
@@ -30,6 +30,16 @@ export class DeviceTokensService {
   async unregister(userId: string, token: string) {
     if (!token) return;
     await this.repo.delete({ userId, token });
+  }
+
+  /**
+   * Delete tokens FCM reported as unregistered/invalid, regardless of user.
+   * Called from the push service to prune expired tokens on send failure.
+   */
+  async removeTokens(tokens: string[]) {
+    const valid = tokens.filter(Boolean);
+    if (!valid.length) return;
+    await this.repo.delete({ token: In(valid) });
   }
 
   /** All FCM tokens for a user (multi-device fan-out). */

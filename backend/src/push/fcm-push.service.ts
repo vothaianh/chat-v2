@@ -2,6 +2,14 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { PushPayload, PushService } from './push.service';
+import { DeviceTokensService } from '../device-tokens/device-tokens.service';
+
+/** FCM error codes that mean the token is dead and should be removed. */
+const DEAD_TOKEN_ERRORS = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-argument',
+  'messaging/invalid-registration-token',
+]);
 
 /**
  * FCM-backed PushService. Initializes firebase-admin only when credentials are
@@ -14,7 +22,10 @@ export class FcmPushService implements PushService, OnModuleInit {
   private readonly logger = new Logger(FcmPushService.name);
   private configured = false;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly devices: DeviceTokensService,
+  ) {}
 
   onModuleInit() {
     const b64 = this.config.get<string>('firebase.credentialsBase64');
@@ -59,6 +70,14 @@ export class FcmPushService implements PushService, OnModuleInit {
       });
       if (res.failureCount > 0) {
         this.logger.warn(`FCM: ${res.failureCount}/${valid.length} deliveries failed.`);
+        // Prune tokens FCM reports as dead so we stop pushing to them.
+        const stale = res.responses
+          .map((r, i) => (!r.success && DEAD_TOKEN_ERRORS.has(r.error?.code ?? '') ? valid[i] : null))
+          .filter((t): t is string => t !== null);
+        if (stale.length) {
+          await this.devices.removeTokens(stale);
+          this.logger.log(`Pruned ${stale.length} stale FCM token(s).`);
+        }
       }
     } catch (err) {
       this.logger.error(`FCM send error: ${err.message}`);

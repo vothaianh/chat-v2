@@ -29,6 +29,22 @@ android {
         coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     }
 
+    // dev / prod flavors. The endpoint is driven by the Dart entrypoint
+    // (main_dev.dart / main_prod.dart); flavors here give distinct app labels
+    // and let `flutter build --flavor prod` work. The applicationId stays the
+    // same for both so the single Firebase google-services.json keeps matching.
+    flavorDimensions += "env"
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            resValue("string", "app_name", "TruePilot Chat Dev")
+        }
+        create("prod") {
+            dimension = "env"
+            resValue("string", "app_name", "TruePilot Chat")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

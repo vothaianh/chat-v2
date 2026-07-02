@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'config/app_config.dart';
+import 'services/config.dart';
 import 'theme/app_theme.dart';
 import 'services/app_state.dart';
 import 'screens/auth_screen.dart';
 import 'screens/root_shell.dart';
 
-void main() {
+/// Shared bootstrap used by the flavor entrypoints (main_dev / main_prod).
+/// Defaulting here to the flavor resolved from dart-defines keeps `main.dart`
+/// runnable directly too.
+void bootstrapApp([AppConfig? config]) {
   WidgetsFlutterBinding.ensureInitialized();
+  Config.init(config ?? AppConfig.resolve());
   final appState = AppState();
   runApp(ChatApp(appState: appState));
 }
+
+void main() => bootstrapApp();
 
 class ChatApp extends StatefulWidget {
   final AppState appState;
@@ -31,7 +39,7 @@ class _ChatAppState extends State<ChatApp> {
     return ChangeNotifierProvider.value(
       value: widget.appState,
       child: MaterialApp(
-        title: 'Chat',
+        title: Config.appName,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.dark(),
         darkTheme: AppTheme.dark(),
