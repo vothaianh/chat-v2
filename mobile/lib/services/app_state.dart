@@ -229,6 +229,14 @@ class AppState extends ChangeNotifier {
       await loadConversations();
       conv = _cachedConversation(conversationId);
     }
+    if (conv == null) return null;
+    // Hydrate this conversation's messages from the local store so the chat
+    // isn't empty when opened from a notification tap — the background FCM
+    // isolate persisted them to SQLite, but the in-memory map may not have
+    // them yet (they only get pulled on resume otherwise).
+    if (!store.isOpen) await store.open(auth.userId!);
+    _messages[conversationId] = await store.loadConversation(conversationId);
+    notifyListeners();
     return conv;
   }
 
