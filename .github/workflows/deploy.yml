@@ -45,7 +45,7 @@ jobs:
         run: |
           ssh ubuntu@ssh.truepilot.io << 'EOF'
             cd /apps/chat
-            echo "FIREBASE_CREDENTIALS_BASE64=${{ secrets.FIREBASE_CREDENTIALS_BASE64 }}" >> .env
+            echo "FIREBASE_CREDENTIALS_BASE64=${{ secrets.FIREBASE_CREDENTIALS_BASE64 }}" > .env
             echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
             docker pull truepilot2026/chat:latest
             docker compose up -d
