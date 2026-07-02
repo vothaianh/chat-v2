@@ -5,10 +5,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: chat
-      POSTGRES_PASSWORD: chat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: chatdb
     ports:
       - "5433:5432"
+ 
+ 
     volumes:
       - chat_pgdata:/var/lib/postgresql/data
       - ./backend/db/0001-init.sql:/docker-entrypoint-initdb.d/0001-init.sql:ro
@@ -35,7 +37,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: chat
-      DB_PASSWORD: chat
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: chatdb
       JWT_SECRET: change-me-in-production-please
       JWT_EXPIRES_IN: 7d
