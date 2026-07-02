@@ -207,4 +207,34 @@ class ChatMessage {
       delivered: (m['delivered'] as int? ?? 1) == 1,
     );
   }
+
+  /// Reconstruct a message from an FCM `data` payload (background/offline
+  /// delivery). All FCM data values are strings, so empty strings map back to
+  /// null for the optional text/media/caption fields. Used by [PushService] to
+  /// persist messages that arrived via FCM into the local [MessageStore], so
+  /// they survive an app restart instead of vanishing with the notification.
+  factory ChatMessage.fromFcmData(Map<String, dynamic> d) {
+    String? nonEmpty(String? s) => (s == null || s.isEmpty) ? null : s;
+    final t = (d['type'] as String?) ?? 'text';
+    final type = t == 'sticker'
+        ? MessageType.sticker
+        : t == 'gif'
+            ? MessageType.gif
+            : MessageType.text;
+    final ts = int.tryParse((d['ts'] as String?) ?? '') ??
+        DateTime.now().millisecondsSinceEpoch;
+    return ChatMessage(
+      id: (d['messageId'] as String?) ?? '${d['senderId']}-$ts',
+      conversationId: d['conversationId'] as String,
+      type: type,
+      text: nonEmpty(d['text'] as String?),
+      media: nonEmpty(d['media'] as String?),
+      caption: nonEmpty(d['caption'] as String?),
+      senderId: d['senderId'] as String? ?? '',
+      senderUsername: nonEmpty(d['senderUsername'] as String?),
+      senderFullName: nonEmpty(d['senderFullName'] as String?),
+      createdAt: ts,
+      delivered: true,
+    );
+  }
 }

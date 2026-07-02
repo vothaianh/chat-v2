@@ -4,7 +4,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/models.dart';
 import 'api_service.dart';
+import 'auth_service.dart';
+import 'message_store.dart';
 
 /// Manages FCM: initialization, token acquisition/refresh, permission requests,
 /// registering the device token with the backend, and showing local notifications
@@ -21,14 +25,52 @@ class PushService {
   String? _token;
   String? _authToken; // backend JWT, set after login
 
+  /// Set by [AppState]. When a message arrives via FCM while the app is in the
+  /// foreground, we reconstruct a [ChatMessage] and hand it here so the open
+  /// chat list updates live AND it gets persisted to the local store. The
+  /// background isolate can't reach this (different isolate) — it writes to the
+  /// store directly and the app re-hydrates on resume.
+  void Function(ChatMessage)? onPersistMessage;
+
+  /// Set by [AppState]. Invoked with a conversationId when the user taps a
+  /// notification (foreground local-notification tap, or a background/terminated
+  /// FCM message that the OS opened the app from). The UI layer resolves the
+  /// conversation and pushes the [ChatScreen].
+  void Function(String conversationId)? onTapConversation;
+
   /// Top-level handler for messages that arrive while the app is in the background
   /// or terminated. Must be a top-level function (not a closure or class method).
+  ///
+  /// We persist the message to the per-account local [MessageStore] so it's
+  /// still visible when the user reopens the app (FCM is the only copy — the
+  /// server never stores messages). This runs in a separate isolate, so it
+  /// opens its own [MessageStore] from the userId saved in SharedPreferences by
+  /// [AuthService]; the main isolate re-hydrates from disk on resume.
   @pragma('vm:entry-point')
   static Future<void> onBackgroundMessage(RemoteMessage message) async {
-    // Lightweight handling — we only surface a notification when the OS shows it
-    // automatically (data-only messages rely on the system tray). For visible
-    // background notifications, the OS uses the FCM `notification` payload.
     debugPrint('FCM background: ${message.messageId} ${message.notification?.title}');
+    await _persistFcmMessage(message);
+  }
+
+  /// Reconstructs the [ChatMessage] from the FCM data payload and writes it to
+  /// the per-account local store. Shared by the foreground and background paths
+  /// (background calls this directly from the static handler; foreground goes
+  /// through [onPersistMessage] which also updates the live in-memory list).
+  static Future<void> _persistFcmMessage(RemoteMessage message) async {
+    final data = message.data;
+    if (data['messageId'] == null) return;
+    try {
+      final m = ChatMessage.fromFcmData(Map<String, dynamic>.from(data));
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString(AuthService.kUserIdKey);
+      if (userId == null) return;
+      final store = MessageStore();
+      await store.open(userId);
+      await store.upsert(m);
+      await store.close();
+    } catch (e) {
+      debugPrint('FCM persist failed: $e');
+    }
   }
 
   Future<void> init() async {
@@ -46,7 +88,11 @@ class PushService {
     await _local.initialize(
       settings: const InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: (resp) {
-        debugPrint('Local notification tapped: ${resp.payload}');
+        // Foreground local-notification tap → open the conversation.
+        final conversationId = resp.payload;
+        if (conversationId != null && conversationId.isNotEmpty) {
+          onTapConversation?.call(conversationId);
+        }
       },
     );
 
@@ -72,6 +118,19 @@ class PushService {
 
     // Foreground messages: show a local notification so the user sees them.
     FirebaseMessaging.onMessage.listen(_handleForeground);
+
+    // User tapped a notification that launched the app from background/terminated
+    // state. Both carry the conversationId in the data payload → open the chat.
+    FirebaseMessaging.onMessageOpenedApp.listen((m) {
+      final id = m.data['conversationId'] as String?;
+      if (id != null && id.isNotEmpty) onTapConversation?.call(id);
+    });
+    // Cold start: a notification tap launched the app from terminated state.
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) {
+      final id = initial.data['conversationId'] as String?;
+      if (id != null && id.isNotEmpty) onTapConversation?.call(id);
+    }
 
     // Token refresh → re-register with the backend if we have a JWT.
     FirebaseMessaging.instance.onTokenRefresh.listen(_onTokenRefresh);
@@ -191,5 +250,15 @@ class PushService {
       ),
       payload: data['conversationId'] as String?,
     );
+    // Persist into local history so the message survives an app restart.
+    // onPersistMessage (set by AppState) upserts to the store AND updates the
+    // live in-memory list + notifies listeners.
+    if (data['messageId'] != null && onPersistMessage != null) {
+      try {
+        onPersistMessage!(ChatMessage.fromFcmData(Map<String, dynamic>.from(data)));
+      } catch (e) {
+        debugPrint('FCM foreground persist failed: $e');
+      }
+    }
   }
 }

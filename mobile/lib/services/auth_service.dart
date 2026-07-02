@@ -4,7 +4,10 @@ import '../models/models.dart';
 
 class AuthService {
   static const _kToken = 'auth_token';
-  static const _kUserId = 'auth_user_id';
+  /// Public so the FCM background isolate can read the logged-in userId and
+  /// open the right per-account [MessageStore] without the main isolate.
+  static const kUserIdKey = 'auth_user_id';
+  static const _kUserId = kUserIdKey;
   static const _kUsername = 'auth_username';
 
   String? _token;

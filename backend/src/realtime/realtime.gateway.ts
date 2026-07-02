@@ -227,8 +227,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       data: {
         conversationId: dto.conversationId,
         type: dto.type,
+        text: dto.text ?? '',
+        media: dto.media ?? '',
+        caption: dto.caption ?? '',
         senderId: envelope.senderId,
         senderUsername: envelope.sender?.username ?? '',
+        senderFullName: envelope.sender?.fullName ?? '',
         messageId: envelope.id,
         ts: String(envelope.createdAt),
       },

@@ -103,8 +103,8 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static String _host() {
-    final u = Uri.tryParse(Config.baseUrl);
-    return u?.host ?? Config.baseUrl;
+    // Show the environment name rather than the raw domain.
+    return Config.isProd ? 'Production' : 'Development';
   }
 
   Widget _section(String label) => Padding(

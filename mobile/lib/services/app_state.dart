@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/models.dart';
 import 'auth_service.dart';
 import 'socket_service.dart';
@@ -11,6 +11,10 @@ class AppState extends ChangeNotifier {
   final SocketService socket = SocketService();
   final PushService push = PushService.instance;
   final MessageStore store = MessageStore();
+
+  /// App-wide navigator key so [PushService] can push a [ChatScreen] when a
+  /// notification is tapped (no BuildContext available there).
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   bool _bootstrapped = false;
   bool _loading = false;
@@ -40,6 +44,7 @@ class AppState extends ChangeNotifier {
       if (auth.isAuthenticated) {
         await _openStoreAndHydrate();
         _connectSocket();
+        _wirePushPersist();
         await push.attach(auth.token!);
         await loadConversations();
       }
@@ -89,6 +94,28 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
+  /// Wire the FCM foreground-persist callback so messages that arrive via FCM
+  /// while the app is open are merged into the live in-memory list and the
+  /// local store (same path as socket-delivered messages). Idempotent.
+  void _wirePushPersist() {
+    push.onPersistMessage = (m) => _addMessage(m.conversationId, m);
+  }
+
+  /// Called on app resume: re-hydrate from the local store so messages that
+  /// the FCM background isolate persisted while the app was backgrounded appear
+  /// in the open chat. Reuses [MessageStore.loadConversation] per cached conv.
+  Future<void> refreshFromStore() async {
+    if (auth.userId == null) return;
+    if (!store.isOpen) await store.open(auth.userId!);
+    final convIds = <String>{};
+    convIds.addAll(_messages.keys);
+    convIds.addAll(_conversations.map((c) => c.id));
+    for (final convId in convIds) {
+      _messages[convId] = await store.loadConversation(convId);
+    }
+    notifyListeners();
+  }
+
   // ---- auth ----
   Future<bool> register({
     required String username,
@@ -108,6 +135,7 @@ class AppState extends ChangeNotifier {
       );
       await _openStoreAndHydrate();
       _connectSocket();
+      _wirePushPersist();
       await push.attach(auth.token!);
       await loadConversations();
       _loading = false;
@@ -134,6 +162,7 @@ class AppState extends ChangeNotifier {
       await auth.login(login: login, password: password);
       await _openStoreAndHydrate();
       _connectSocket();
+      _wirePushPersist();
       await push.attach(auth.token!);
       await loadConversations();
       _loading = false;
@@ -155,6 +184,8 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     socket.disconnect();
     await push.detach();
+    push.onPersistMessage = null;
+    push.onTapConversation = null;
     // Keep the local history on disk so signing back in restores past chats;
     // just close the handle and clear the in-memory copy.
     await store.close();
@@ -176,6 +207,29 @@ class AppState extends ChangeNotifier {
       _error = e.message;
       notifyListeners();
     }
+  }
+
+  /// Look up a cached conversation by id (null if not loaded).
+  Conversation? _cachedConversation(String id) {
+    for (final c in _conversations) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  /// Resolve a conversation by id, fetching the list from the server if it
+  /// isn't cached (e.g. cold start). Returns null if it still can't be found.
+  /// The UI layer uses this + [navigatorKey] to push a [ChatScreen] when a
+  /// notification is tapped. Resolving (not navigating) lives here so the
+  /// conversation list is refreshed server-side before opening.
+  Future<Conversation?> resolveConversation(String conversationId) async {
+    if (auth.token == null) return null;
+    var conv = _cachedConversation(conversationId);
+    if (conv == null) {
+      await loadConversations();
+      conv = _cachedConversation(conversationId);
+    }
+    return conv;
   }
 
   Future<Conversation?> startPrivateWith(String username) async {

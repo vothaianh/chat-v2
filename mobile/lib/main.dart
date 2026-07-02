@@ -5,6 +5,7 @@ import 'services/config.dart';
 import 'theme/app_theme.dart';
 import 'services/app_state.dart';
 import 'screens/auth_screen.dart';
+import 'screens/chat_screen.dart';
 import 'screens/root_shell.dart';
 
 /// Shared bootstrap used by the flavor entrypoints (main_dev / main_prod).
@@ -27,11 +28,41 @@ class ChatApp extends StatefulWidget {
   State<ChatApp> createState() => _ChatAppState();
 }
 
-class _ChatAppState extends State<ChatApp> {
+class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Wire notification taps → open the conversation. Lives in the UI layer so
+    // it can import ChatScreen without a service/screen import cycle.
+    widget.appState.push.onTapConversation = _openConversationFromNotification;
     widget.appState.bootstrap();
+  }
+
+  Future<void> _openConversationFromNotification(String conversationId) async {
+    final app = widget.appState;
+    if (!app.isAuthenticated) return; // ignore taps before login
+    final conv = await app.resolveConversation(conversationId);
+    if (conv == null) return;
+    final nav = app.navigatorKey.currentState;
+    if (nav == null) return;
+    nav.popUntil((route) => route.isFirst);
+    nav.push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // On resume, pull any messages the FCM background isolate persisted while
+    // the app was backgrounded into the live in-memory list.
+    if (state == AppLifecycleState.resumed) {
+      widget.appState.refreshFromStore();
+    }
   }
 
   @override
@@ -39,6 +70,7 @@ class _ChatAppState extends State<ChatApp> {
     return ChangeNotifierProvider.value(
       value: widget.appState,
       child: MaterialApp(
+        navigatorKey: widget.appState.navigatorKey,
         title: Config.appName,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.dark(),
