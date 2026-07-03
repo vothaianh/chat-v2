@@ -90,6 +90,7 @@ class PushService {
       onDidReceiveNotificationResponse: (resp) {
         // Foreground local-notification tap → open the conversation.
         final conversationId = resp.payload;
+        debugPrint('Local notification tapped: payload=$conversationId, callback set=${onTapConversation != null}');
         if (conversationId != null && conversationId.isNotEmpty) {
           onTapConversation?.call(conversationId);
         }
@@ -119,21 +120,42 @@ class PushService {
     // Foreground messages: show a local notification so the user sees them.
     FirebaseMessaging.onMessage.listen(_handleForeground);
 
-    // User tapped a notification that launched the app from background/terminated
-    // state. Both carry the conversationId in the data payload → open the chat.
-    FirebaseMessaging.onMessageOpenedApp.listen((m) {
-      final id = m.data['conversationId'] as String?;
-      if (id != null && id.isNotEmpty) onTapConversation?.call(id);
-    });
+    // User tapped a notification that opened the app from background state.
+    // Persist the message (the banner only carries an alert — the message
+    // content is in the data payload, which we reconstruct into the local
+    // store here) and then open the conversation.
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleTapMessage);
+
     // Cold start: a notification tap launched the app from terminated state.
+    // Captured here and replayed in [attach] once the user is authenticated and
+    // the UI has wired [onTapConversation] (init() runs before auth.load()).
     final initial = await FirebaseMessaging.instance.getInitialMessage();
+    debugPrint('FCM getInitialMessage: ${initial == null ? "NULL (no cold-start tap / sim did not deliver)" : "conversationId=${initial.data['conversationId']}"}');
     if (initial != null) {
-      final id = initial.data['conversationId'] as String?;
-      if (id != null && id.isNotEmpty) onTapConversation?.call(id);
+      _pendingTapMessage = initial;
+      debugPrint('FCM cold-start tap pending: conversationId=${initial.data['conversationId']}');
     }
 
     // Token refresh → re-register with the backend if we have a JWT.
     FirebaseMessaging.instance.onTokenRefresh.listen(_onTokenRefresh);
+  }
+
+  /// A cold-start notification tap captured in [init] before auth was loaded.
+  /// Replayed in [attach] once the UI is ready.
+  RemoteMessage? _pendingTapMessage;
+
+  /// Persist the message from its FCM data payload, then open the conversation.
+  /// The banner only shows an alert; the message body lives in `data`, so we
+  /// reconstruct + persist it here (in both warm and cold-start tap paths) —
+  /// iOS does not run [onBackgroundMessage] for alert notifications, so without
+  /// this the tapped message would never reach the local store and the chat
+  /// would open empty.
+  Future<void> _handleTapMessage(RemoteMessage message) async {
+    final conversationId = message.data['conversationId'] as String?;
+    if (conversationId == null || conversationId.isEmpty) return;
+    debugPrint('FCM tap → conversationId=$conversationId, callback set=${onTapConversation != null}');
+    await _persistFcmMessage(message); // persist so it shows when the chat opens
+    onTapConversation?.call(conversationId);
   }
 
   /// Called after the user logs in. Requests permissions, gets the token, and
@@ -160,6 +182,15 @@ class PushService {
       if (token != null) {
         _token = token;
         await _registerWithBackend(token);
+      }
+
+      // Now that the user is authenticated and the UI has wired [onTapConversation],
+      // replay a cold-start notification tap captured in [init] — persist the
+      // message then open the conversation.
+      final pending = _pendingTapMessage;
+      _pendingTapMessage = null;
+      if (pending != null) {
+        await _handleTapMessage(pending);
       }
     } catch (e) {
       debugPrint('FCM attach skipped: $e');

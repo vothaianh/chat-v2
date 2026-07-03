@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../models/models.dart';
 import 'config.dart';
@@ -44,19 +45,23 @@ class SocketService {
     );
 
     _socket!.onConnect((_) {
+      debugPrint('[socket] connected to ${Config.socketUrl}');
       _connected = true;
       _connectionState.add(true);
     });
     _socket!.onDisconnect((_) {
+      debugPrint('[socket] disconnected');
       _connected = false;
       _connectionState.add(false);
     });
     _socket!.onConnectError((e) {
+      debugPrint('[socket] connect error: $e');
       _connected = false;
       _connectionState.add(false);
     });
 
     _socket!.on('message:new', (data) {
+      debugPrint('[socket] message:new received: $data');
       _messages.add(ChatMessage.fromJson(data as Json));
     });
     _socket!.on('message:ack', (data) {

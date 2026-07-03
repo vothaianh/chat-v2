@@ -21,6 +21,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isTyping = false;
   Timer? _typingTimer;
   late final AppState _app;
+  int _lastMessageCount = 0; // tracks incoming messages to auto-scroll
 
   @override
   void initState() {
@@ -99,7 +100,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final messages = app.messagesFor(widget.conversation.id);
+    debugPrint('[chat-ui] build conv=${widget.conversation.id} count=${messages.length} last=${messages.isEmpty ? "(empty)" : messages.last.text}');
     final typingUserIds = app.typingUserIdsFor(widget.conversation.id);
+
+    // Auto-scroll to the bottom when a new message arrives (incoming or our
+    // optimistic echo) — only if we were already near the bottom, so we don't
+    // yank the user up while they're reading older messages.
+    if (messages.length != _lastMessageCount) {
+      final atBottom = !_scrollCtrl.hasClients ||
+          _scrollCtrl.position.pixels >=
+              _scrollCtrl.position.maxScrollExtent - 120;
+      _lastMessageCount = messages.length;
+      if (atBottom) _scrollToBottom();
+    }
 
     return Scaffold(
       appBar: AppBar(

@@ -17,7 +17,7 @@ class AppConfig {
   bool get isProd => env == Environment.prod;
   bool get isDev => env == Environment.dev;
 
-  static const _devUrl = 'http://localhost:3010';
+  static const _devUrl = 'http://10.0.0.100:3010';
   static const _prodUrl = 'https://chat-api.truepilot.io';
 
   static const AppConfig dev = AppConfig(

@@ -235,7 +235,9 @@ class AppState extends ChangeNotifier {
     // isolate persisted them to SQLite, but the in-memory map may not have
     // them yet (they only get pulled on resume otherwise).
     if (!store.isOpen) await store.open(auth.userId!);
-    _messages[conversationId] = await store.loadConversation(conversationId);
+    final loaded = await store.loadConversation(conversationId);
+    _messages[conversationId] = loaded;
+    debugPrint('[notif-tap] hydrated ${loaded.length} messages for $conversationId (storeOpen=${store.isOpen})');
     notifyListeners();
     return conv;
   }
@@ -349,6 +351,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onMessage(ChatMessage m) {
+    debugPrint('[socket] _onMessage from=${m.senderId} conv=${m.conversationId} text=${m.text} (me=${currentUserId}, activeConv=$_activeConversationId)');
     _addMessage(m.conversationId, m);
     // In-app banner for messages from others that aren't in the open chat.
     // (FCM handles offline recipients; online delivery arrives here instead.)

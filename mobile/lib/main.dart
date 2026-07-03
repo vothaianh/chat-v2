@@ -40,14 +40,21 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
   }
 
   Future<void> _openConversationFromNotification(String conversationId) async {
+    debugPrint('[notif-tap] open conversationId=$conversationId');
     final app = widget.appState;
-    if (!app.isAuthenticated) return; // ignore taps before login
+    if (!app.isAuthenticated) {
+      debugPrint('[notif-tap] ignored — not authenticated yet');
+      return; // ignore taps before login
+    }
     final conv = await app.resolveConversation(conversationId);
+    debugPrint('[notif-tap] resolved conversation: ${conv != null}');
     if (conv == null) return;
     final nav = app.navigatorKey.currentState;
+    debugPrint('[notif-tap] navigator state: ${nav != null}');
     if (nav == null) return;
     nav.popUntil((route) => route.isFirst);
     nav.push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)));
+    debugPrint('[notif-tap] pushed ChatScreen');
   }
 
   @override
