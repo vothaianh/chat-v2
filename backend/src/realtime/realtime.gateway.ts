@@ -9,17 +9,17 @@ import {
   WsException,
 } from '@nestjs/websockets';
 import { Inject, Logger } from '@nestjs/common';
-import * as jwt from 'jsonwebtoken';
-import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import { SendMessageDto, TypingDto, ReadDto } from './dto';
 import { ConversationsService } from '../conversations/conversations.service';
+import { MessagesService } from '../conversations/messages.service';
 import { UsersService } from '../users/users.service';
 import { PresenceService } from './presence.service';
 import { extractMentions } from './mentions';
 import { PUSH_SERVICE, PushService } from '../push/push.service';
 import { DeviceTokensService } from '../device-tokens/device-tokens.service';
 import { JwtPayload } from '../auth/jwt.strategy';
+import { stripBearer, verifyAccessToken } from '../auth/jwt-secrets';
 
 @WebSocketGateway({
   namespace: '/',
@@ -34,49 +34,62 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   constructor(
     private readonly conversations: ConversationsService,
+    private readonly messages: MessagesService,
     private readonly users: UsersService,
     private readonly presence: PresenceService,
     private readonly devices: DeviceTokensService,
-    private readonly config: ConfigService,
     @Inject(PUSH_SERVICE) private readonly push: PushService,
   ) {}
 
+  /** Pull the JWT from auth, query, or Authorization — Flutter's websocket
+   *  transport often omits handshake.auth. */
+  private extractToken(client: Socket): string | null {
+    const auth = client.handshake?.auth as { token?: unknown } | undefined;
+    const query = client.handshake?.query?.token;
+    const header =
+      client.handshake?.headers?.authorization ??
+      (client.handshake?.headers as { Authorization?: string } | undefined)?.Authorization;
+    const raw = auth?.token ?? query ?? header ?? null;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof value !== 'string' || value.length === 0) return null;
+    return stripBearer(value);
+  }
+
   /** Authenticate the socket from the handshake JWT and stamp it on client.data. */
-  private authenticate(client: Socket): { userId: string; username: string } | null {
-    const token: string =
-      client.handshake?.auth?.token || client.handshake?.query?.token || null;
-    if (!token) return null;
-    const secret = this.config.get<string>('jwt.secret') ?? 'dev-secret-change-me';
-    try {
-      const payload = jwt.verify(token, secret) as JwtPayload;
-      client.data.userId = payload.sub;
-      client.data.username = payload.username;
-      return { userId: payload.sub, username: payload.username };
-    } catch {
-      return null;
-    }
+  private authenticate(client: Socket): { userId: string; username: string } | 'missing' | 'invalid' {
+    const token = this.extractToken(client);
+    if (!token) return 'missing';
+    const payload = verifyAccessToken(token) as JwtPayload | null;
+    if (!payload?.sub) return 'invalid';
+    client.data.userId = payload.sub;
+    client.data.username = payload.username;
+    return { userId: payload.sub, username: payload.username };
   }
 
   async handleConnection(client: Socket) {
     const auth = this.authenticate(client);
-    if (!auth) {
-      this.logger.warn('WS connect rejected: invalid token');
+    if (auth === 'missing' || auth === 'invalid') {
+      this.logger.warn(`WS connect rejected: ${auth} token`);
       client.disconnect(true);
       return;
     }
     const { userId } = auth;
     await this.presence.connect(userId, client.id);
 
-    // Auto-join every conversation the user is a member of for instant delivery.
-    const convs = await this.conversations.listMine(userId);
-    for (const c of convs) {
-      await client.join(this.room(c.id));
+    try {
+      // Auto-join every conversation the user is a member of for instant delivery.
+      const convs = await this.conversations.listMine(userId);
+      for (const c of convs) {
+        await client.join(this.room(c.id));
+      }
+      // Personal room for direct delivery (mentions, etc.) to all of a user's devices.
+      await client.join(this.userRoom(userId));
+      this.broadcastPresence(userId, true);
+      this.logger.log(`connected: ${auth.username} (${userId}) — ${convs.length} rooms`);
+    } catch (e) {
+      this.logger.error(`WS room join failed for ${auth.username}: ${(e as Error).message}`);
+      await client.join(this.userRoom(userId));
     }
-    // Personal room for direct delivery (mentions, etc.) to all of a user's devices.
-    await client.join(this.userRoom(userId));
-
-    this.broadcastPresence(userId, true);
-    this.logger.log(`connected: ${auth.username} (${userId}) — ${convs.length} rooms`);
   }
 
   async handleDisconnect(client: Socket) {
@@ -90,9 +103,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /**
-   * Deliver a message. Ephemeral: the envelope is never written to the DB.
-   * The server routes it to the conversation room, fans out FCM to offline
-   * members, and resolves @mentions.
+   * Deliver a message. Persist to Postgres, then emit to the conversation room,
+   * fan out FCM to offline members, and resolve @mentions.
    */
   @SubscribeMessage('message:send')
   async onMessage(
@@ -118,10 +130,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       createdAt: ts,
     };
 
-    // 1) Instant delivery to everyone online in the conversation room.
+    try {
+      await this.messages.persist({
+        id: envelope.id,
+        conversationId: dto.conversationId,
+        senderId: userId,
+        type: dto.type,
+        text: dto.text,
+        media: dto.media,
+        caption: dto.caption,
+        createdAt: new Date(ts),
+      });
+    } catch (e) {
+      this.logger.error(`persist failed: ${(e as Error).message}`);
+    }
+
+    // Instant delivery to everyone online in the conversation room.
     this.server.to(this.room(dto.conversationId)).emit('message:new', envelope);
 
-    // 2) Delivery ack back to sender (confirms server receipt — messages aren't stored).
+    // Delivery ack back to sender (confirms server receipt + persist).
     client.emit('message:ack', { id: envelope.id, conversationId: dto.conversationId, createdAt: ts });
 
     // 3) @mentions: resolve usernames -> users, emit a 'mentioned' event to them directly.

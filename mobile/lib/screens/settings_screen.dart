@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../services/app_state.dart';
 import '../services/config.dart';
 import '../widgets/glass.dart';
+import '../widgets/pulse.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -12,89 +13,59 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final username = app.auth.username ?? 'user';
-    final initial = username.isNotEmpty ? username.substring(0, 1).toUpperCase() : '?';
-    final topInset = MediaQuery.of(context).padding.top + 56;
+    final topInset = MediaQuery.of(context).padding.top + 58;
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
-      appBar: const GlassAppBar(title: Text('Settings')),
+      appBar: const GlassAppBar(title: Text('you')),
       body: ListView(
-        padding: EdgeInsets.only(top: topInset + 12, bottom: 120),
+        padding: EdgeInsets.only(top: topInset + 12, bottom: 130),
         children: [
-          // Profile card
           Container(
-            margin: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 22),
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [AppTheme.surfaceElevated, AppTheme.surface],
-              ),
+              borderRadius: BorderRadius.circular(24),
+              color: AppTheme.surfaceElevated,
               border: Border.all(color: AppTheme.divider),
             ),
             child: Row(
               children: [
-                Container(
-                  width: 62, height: 62,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                      colors: [AppTheme.primary, AppTheme.primaryDark],
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 26)),
-                ),
+                PulseAvatar(label: username, size: 64, online: true),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('@$username',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                      Text('@$username', style: AppTheme.display(size: 22, letterSpacing: -0.6)),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Container(
-                            width: 8, height: 8,
-                            decoration: const BoxDecoration(color: AppTheme.online, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 6),
-                          const Text('Online',
-                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                        ],
-                      ),
+                      Text('live now', style: AppTheme.body(size: 13, weight: FontWeight.w700, color: AppTheme.primary)),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-
-          _section('Preferences'),
-          _tile(icon: Icons.dark_mode_rounded, title: 'Appearance', trailing: 'Dark', onTap: () {}),
-          _tile(icon: Icons.notifications_outlined, title: 'Notifications', trailing: 'On', onTap: () {}),
-          _tile(icon: Icons.lock_outline_rounded, title: 'Privacy', onTap: () {}),
-
-          _section('About'),
-          _tile(icon: Icons.dns_outlined, title: 'Server', trailing: _host(), onTap: () {}),
-          _tile(icon: Icons.info_outline_rounded, title: 'Version', trailing: '1.0.0', onTap: () {}),
-
-          const SizedBox(height: 20),
+          _section('prefs'),
+          _tile(icon: Icons.dark_mode_rounded, title: 'look', trailing: 'night'),
+          _tile(icon: Icons.notifications_none_rounded, title: 'pings', trailing: 'on'),
+          _tile(icon: Icons.lock_outline_rounded, title: 'privacy'),
+          _section('stack'),
+          _tile(icon: Icons.dns_outlined, title: 'server', trailing: Config.isProd ? 'prod' : 'dev'),
+          _tile(icon: Icons.info_outline_rounded, title: 'build', trailing: '1.0.0'),
+          const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: OutlinedButton.icon(
+            child: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppTheme.danger,
                 side: const BorderSide(color: AppTheme.danger),
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                minimumSize: const Size.fromHeight(54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               ),
-              icon: const Icon(Icons.logout_rounded),
-              label: const Text('Sign out', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
               onPressed: () => app.logout(),
+              child: Text('log out', style: AppTheme.body(size: 15, weight: FontWeight.w800, color: AppTheme.danger)),
             ),
           ),
         ],
@@ -102,39 +73,30 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  static String _host() {
-    // Show the environment name rather than the raw domain.
-    return Config.isProd ? 'Production' : 'Development';
-  }
-
   Widget _section(String label) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-        child: Text(label.toUpperCase(),
-            style: const TextStyle(
-                color: AppTheme.textFaint, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+        padding: const EdgeInsets.fromLTRB(22, 10, 22, 8),
+        child: Text(label, style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.textFaint)),
       );
 
-  Widget _tile({required IconData icon, required String title, String? trailing, VoidCallback? onTap}) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceElevated,
-          borderRadius: BorderRadius.circular(10),
+  Widget _tile({required IconData icon, required String title, String? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceElevated,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, size: 20, color: AppTheme.primary),
         ),
-        child: Icon(icon, size: 20, color: AppTheme.textSecondary),
-      ),
-      title: Text(title, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w500)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (trailing != null)
-            Text(trailing, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right_rounded, color: AppTheme.textFaint),
-        ],
+        title: Text(title, style: AppTheme.body(size: 15.5, weight: FontWeight.w700)),
+        trailing: trailing == null
+            ? const Icon(Icons.chevron_right_rounded, color: AppTheme.textFaint)
+            : Text(trailing, style: AppTheme.body(size: 13.5, color: AppTheme.textSecondary, weight: FontWeight.w600)),
       ),
     );
   }

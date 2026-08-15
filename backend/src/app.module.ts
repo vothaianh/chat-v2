@@ -13,6 +13,7 @@ import { User } from './users/user.entity';
 import { DeviceToken } from './device-tokens/device-token.entity';
 import { Conversation } from './conversations/conversation.entity';
 import { ConversationMember } from './conversations/conversation-member.entity';
+import { Message } from './conversations/message.entity';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { ConversationMember } from './conversations/conversation-member.entity';
         username: config.get<string>('db.user'),
         password: config.get<string>('db.password'),
         database: config.get<string>('db.name'),
-        entities: [User, DeviceToken, Conversation, ConversationMember],
+        entities: [User, DeviceToken, Conversation, ConversationMember, Message],
         synchronize: config.get<boolean>('db.synchronize'), // dev only — disable in prod, use migrations
         logging: false,
       }),

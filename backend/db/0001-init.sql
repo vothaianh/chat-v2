@@ -45,3 +45,17 @@ CREATE TABLE IF NOT EXISTS conversation_member (
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_member_user ON conversation_member(user_id);
+
+CREATE TABLE IF NOT EXISTS message (
+  id              VARCHAR(64) PRIMARY KEY,
+  conversation_id UUID NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  sender_id       UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  type            VARCHAR(16) NOT NULL,          -- text | sticker | gif
+  text            TEXT,
+  media           VARCHAR(512),
+  caption         TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_conversation_created
+  ON message(conversation_id, created_at DESC);

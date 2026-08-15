@@ -21,8 +21,9 @@ class AppState extends ChangeNotifier {
   String? _error;
   List<Conversation> _conversations = [];
 
-  // per-conversation ephemeral message logs (messages are NOT stored on the server)
+  // per-conversation message logs (server history + live socket)
   final Map<String, List<ChatMessage>> _messages = {};
+  final Set<String> _loadingMessages = {};
   // online presence by userId
   final Map<String, bool> _online = {};
   // typing: conversationId -> userId -> bool
@@ -36,6 +37,8 @@ class AppState extends ChangeNotifier {
   List<Conversation> get conversations => _conversations;
   bool get isAuthenticated => auth.isAuthenticated;
   String? get currentUserId => auth.userId;
+  bool isLoadingMessages(String conversationId) =>
+      _loadingMessages.contains(conversationId);
 
   Future<void> bootstrap() async {
     try {
@@ -57,14 +60,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  bool _socketWired = false;
+
   void _connectSocket() {
     if (auth.token == null) return;
+    if (!_socketWired) {
+      _socketWired = true;
+      socket.onMessage.listen(_onMessage);
+      socket.onAck.listen(_onAck);
+      socket.onTyping.listen(_onTyping);
+      socket.onRead.listen(_onRead);
+      socket.onPresence.listen(_onPresence);
+    }
     socket.connect(auth.token!);
-    socket.onMessage.listen(_onMessage);
-    socket.onAck.listen(_onAck);
-    socket.onTyping.listen(_onTyping);
-    socket.onRead.listen(_onRead);
-    socket.onPresence.listen(_onPresence);
   }
 
   /// Open the per-account local message DB and load cached history into memory
@@ -101,9 +109,8 @@ class AppState extends ChangeNotifier {
     push.onPersistMessage = (m) => _addMessage(m.conversationId, m);
   }
 
-  /// Called on app resume: re-hydrate from the local store so messages that
-  /// the FCM background isolate persisted while the app was backgrounded appear
-  /// in the open chat. Reuses [MessageStore.loadConversation] per cached conv.
+  /// Called on app resume: re-hydrate from the local store, then refresh the
+  /// conversation list and the open chat from the server.
   Future<void> refreshFromStore() async {
     if (auth.userId == null) return;
     if (!store.isOpen) await store.open(auth.userId!);
@@ -114,6 +121,10 @@ class AppState extends ChangeNotifier {
       _messages[convId] = await store.loadConversation(convId);
     }
     notifyListeners();
+    await loadConversations();
+    if (_activeConversationId != null) {
+      await loadMessages(_activeConversationId!);
+    }
   }
 
   // ---- auth ----
@@ -202,11 +213,77 @@ class AppState extends ChangeNotifier {
     if (auth.token == null) return;
     try {
       _conversations = await ApiService.listConversations(auth.token!);
+      for (final c in _conversations) {
+        final last = c.lastMessage;
+        if (last == null) continue;
+        final list = _messages[c.id];
+        if (list == null || list.isEmpty) {
+          _messages[c.id] = [last];
+        } else if (!list.any((m) => m.id == last.id)) {
+          list.add(last);
+          list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        }
+      }
       notifyListeners();
+      await Future.wait(_conversations.map((c) => loadMessages(c.id)));
     } on ApiException catch (e) {
       _error = e.message;
       notifyListeners();
     }
+  }
+
+  /// Fetch persisted history for a conversation and merge it with the local cache.
+  Future<void> loadMessages(String conversationId, {int limit = 50}) async {
+    if (auth.token == null) return;
+    _loadingMessages.add(conversationId);
+    notifyListeners();
+    try {
+      final page = await ApiService.listMessages(
+        auth.token!,
+        conversationId,
+        limit: limit,
+      );
+      _mergeMessages(conversationId, page.messages);
+    } on ApiException catch (e) {
+      _error = e.message;
+    } finally {
+      _loadingMessages.remove(conversationId);
+      notifyListeners();
+    }
+  }
+
+  void _mergeMessages(String conversationId, List<ChatMessage> remote) {
+    final existing = _messages[conversationId] ?? [];
+    final byId = {for (final m in existing) m.id: m};
+    for (final m in remote) {
+      final prev = byId[m.id];
+      if (prev == null || (m.delivered && !prev.delivered)) {
+        byId[m.id] = m;
+      }
+      store.upsert(m);
+    }
+    final list = byId.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    _messages[conversationId] = list;
+  }
+
+  Future<void> markConversationRead(String conversationId) async {
+    _resetUnread(conversationId);
+    socket.markRead(conversationId);
+    if (auth.token == null) return;
+    try {
+      await ApiService.markRead(auth.token!, conversationId);
+    } catch (_) {
+      // socket mark-read is the live path; REST is best-effort for unread counts
+    }
+  }
+
+  void _resetUnread(String conversationId) {
+    final idx = _conversations.indexWhere((c) => c.id == conversationId);
+    if (idx < 0) return;
+    if (_conversations[idx].unreadCount == 0) return;
+    _conversations[idx] = _conversations[idx].copyWith(unreadCount: 0);
+    notifyListeners();
   }
 
   /// Look up a cached conversation by id (null if not loaded).
@@ -239,7 +316,8 @@ class AppState extends ChangeNotifier {
     _messages[conversationId] = loaded;
     debugPrint('[notif-tap] hydrated ${loaded.length} messages for $conversationId (storeOpen=${store.isOpen})');
     notifyListeners();
-    return conv;
+    await loadMessages(conversationId);
+    return _cachedConversation(conversationId) ?? conv;
   }
 
   Future<Conversation?> startPrivateWith(String username) async {
@@ -288,7 +366,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- messages (ephemeral, client-only) ----
+  // ---- messages ----
   List<ChatMessage> messagesFor(String conversationId) =>
       _messages[conversationId] ?? [];
 
@@ -342,12 +420,34 @@ class AppState extends ChangeNotifier {
     _messages[conversationId]!.add(m);
     // Persist to the local on-device history (fire-and-forget).
     store.upsert(m);
+    _bumpConversation(m);
     notifyListeners();
+  }
+
+  void _bumpConversation(ChatMessage m) {
+    final idx = _conversations.indexWhere((c) => c.id == m.conversationId);
+    if (idx < 0) {
+      loadConversations();
+      return;
+    }
+    final c = _conversations[idx];
+    final incoming = m.senderId != currentUserId && m.conversationId != _activeConversationId;
+    final updated = c.copyWith(
+      lastMessage: m,
+      unreadCount: incoming ? c.unreadCount + 1 : c.unreadCount,
+    );
+    _conversations.removeAt(idx);
+    _conversations.insert(0, updated);
   }
 
   /// Set by [ChatScreen] on open/close so we don't banner the chat you're in.
   void setActiveConversation(String? conversationId) {
     _activeConversationId = conversationId;
+    if (conversationId == null) return;
+    // ChatScreen calls this from initState — notify after the current frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_activeConversationId == conversationId) _resetUnread(conversationId);
+    });
   }
 
   void _onMessage(ChatMessage m) {

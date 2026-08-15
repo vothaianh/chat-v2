@@ -1,7 +1,33 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from '@nestjs/common';
-import { ArrayMinSize, IsArray, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { ConversationsService } from './conversations.service';
+import { MessagesService } from './messages.service';
+
+class ListMessagesQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  /** Cursor: epoch milliseconds or ISO timestamp of the oldest loaded message. */
+  @IsOptional()
+  @IsString()
+  before?: string;
+}
 
 class CreatePrivateDto {
   @IsUUID()
@@ -32,11 +58,24 @@ class AddMembersDto {
 
 @Controller('conversations')
 export class ConversationsController {
-  constructor(private readonly conversations: ConversationsService) {}
+  constructor(
+    private readonly conversations: ConversationsService,
+    private readonly messages: MessagesService,
+  ) {}
 
   @Get()
   listMine(@CurrentUser() user: { sub: string }) {
     return this.conversations.listMine(user.sub);
+  }
+
+  @Get(':id/messages')
+  async listMessages(
+    @CurrentUser() user: { sub: string },
+    @Param('id') id: string,
+    @Query() query: ListMessagesQueryDto,
+  ) {
+    await this.conversations.requireMembership(id, user.sub);
+    return this.messages.list(id, { limit: query.limit, before: query.before });
   }
 
   @Get(':id')

@@ -9,7 +9,7 @@ export default () => ({
     synchronize: process.env.DB_SYNCHRONIZE === 'true' || true,
   },
   jwt: {
-    secret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
+    secret: process.env.JWT_SECRET ?? 'change-me-in-production-please',
     expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   },
   cors: {

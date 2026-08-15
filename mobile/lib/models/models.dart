@@ -78,6 +78,8 @@ class Conversation {
   final String? avatarUrl;
   final DateTime createdAt;
   final List<ConversationMember> members;
+  final ChatMessage? lastMessage;
+  final int unreadCount;
 
   Conversation({
     required this.id,
@@ -86,6 +88,8 @@ class Conversation {
     this.avatarUrl,
     required this.createdAt,
     required this.members,
+    this.lastMessage,
+    this.unreadCount = 0,
   });
 
   factory Conversation.fromJson(Map<String, dynamic> j) {
@@ -95,6 +99,7 @@ class Conversation {
     final members = (j['members'] as List)
         .map((m) => ConversationMember.fromJson(m as Map<String, dynamic>))
         .toList();
+    final last = j['lastMessage'];
     return Conversation(
       id: j['id'] as String,
       type: type,
@@ -102,6 +107,24 @@ class Conversation {
       avatarUrl: j['avatarUrl'] as String?,
       createdAt: DateTime.tryParse(j['createdAt'].toString()) ?? DateTime.now(),
       members: members,
+      lastMessage: last is Map<String, dynamic> ? ChatMessage.fromJson(last) : null,
+      unreadCount: (j['unreadCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Conversation copyWith({
+    ChatMessage? lastMessage,
+    int? unreadCount,
+  }) {
+    return Conversation(
+      id: id,
+      type: type,
+      title: title,
+      avatarUrl: avatarUrl,
+      createdAt: createdAt,
+      members: members,
+      lastMessage: lastMessage ?? this.lastMessage,
+      unreadCount: unreadCount ?? this.unreadCount,
     );
   }
 }
@@ -135,6 +158,18 @@ class ChatMessage {
     this.delivered = true,
   });
 
+  static int parseTimestamp(dynamic v) {
+    if (v == null) return DateTime.now().millisecondsSinceEpoch;
+    if (v is num) return v.toInt();
+    final s = v.toString();
+    final asInt = int.tryParse(s);
+    if (asInt != null) {
+      return asInt < 1e11 ? asInt * 1000 : asInt;
+    }
+    return DateTime.tryParse(s)?.millisecondsSinceEpoch ??
+        DateTime.now().millisecondsSinceEpoch;
+  }
+
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
     final t = (j['type'] as String?) ?? 'text';
     final type = t == 'sticker'
@@ -151,9 +186,9 @@ class ChatMessage {
       media: j['media'] as String?,
       caption: j['caption'] as String?,
       senderId: j['senderId'] as String,
-      senderUsername: sender?['username'] as String?,
-      senderFullName: sender?['fullName'] as String?,
-      createdAt: (j['createdAt'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+      senderUsername: (sender?['username'] ?? j['senderUsername']) as String?,
+      senderFullName: (sender?['fullName'] ?? j['senderFullName']) as String?,
+      createdAt: parseTimestamp(j['createdAt']),
       delivered: true,
     );
   }

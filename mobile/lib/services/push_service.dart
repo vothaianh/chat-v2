@@ -97,6 +97,19 @@ class PushService {
       },
     );
 
+    // Cold start from a notification posted by flutter_local_notifications (the
+    // foreground path). iOS attributes that launch to this plugin rather than
+    // FCM, so getInitialMessage() below returns null for it and the payload has
+    // to be picked up here instead. Replayed in [attach] like the FCM case.
+    final launch = await _local.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp ?? false) {
+      final payload = launch?.notificationResponse?.payload;
+      debugPrint('Local notification cold-start: payload=$payload');
+      if (payload != null && payload.isNotEmpty) {
+        _pendingTapConversationId = payload;
+      }
+    }
+
     // Create an Android notification channel for chat messages.
     await _local
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
@@ -144,6 +157,10 @@ class PushService {
   /// Replayed in [attach] once the UI is ready.
   RemoteMessage? _pendingTapMessage;
 
+  /// Same, for a cold start from a local notification — that path only carries
+  /// the payload (the conversation id), not a full [RemoteMessage].
+  String? _pendingTapConversationId;
+
   /// Persist the message from its FCM data payload, then open the conversation.
   /// The banner only shows an alert; the message body lives in `data`, so we
   /// reconstruct + persist it here (in both warm and cold-start tap paths) —
@@ -154,7 +171,23 @@ class PushService {
     final conversationId = message.data['conversationId'] as String?;
     if (conversationId == null || conversationId.isEmpty) return;
     debugPrint('FCM tap → conversationId=$conversationId, callback set=${onTapConversation != null}');
-    await _persistFcmMessage(message); // persist so it shows when the chat opens
+    // This runs in the main isolate, where AppState already holds an open store.
+    // Persist through it when wired: the static fallback opens its own
+    // MessageStore and closes it when done, and sqflite hands both instances the
+    // same underlying connection — so that close would shut the database out
+    // from under AppState, and the navigation that follows dies on
+    // DatabaseException(database_closed). The fallback is for the case where
+    // AppState hasn't wired up yet.
+    final persist = onPersistMessage;
+    if (persist != null && message.data['messageId'] != null) {
+      try {
+        persist(ChatMessage.fromFcmData(Map<String, dynamic>.from(message.data)));
+      } catch (e) {
+        debugPrint('FCM tap persist failed: $e');
+      }
+    } else {
+      await _persistFcmMessage(message); // persist so it shows when the chat opens
+    }
     onTapConversation?.call(conversationId);
   }
 
@@ -188,9 +221,16 @@ class PushService {
       // replay a cold-start notification tap captured in [init] — persist the
       // message then open the conversation.
       final pending = _pendingTapMessage;
+      final pendingConversationId = _pendingTapConversationId;
       _pendingTapMessage = null;
+      _pendingTapConversationId = null;
       if (pending != null) {
         await _handleTapMessage(pending);
+      } else if (pendingConversationId != null) {
+        // Local-notification cold start: no data payload to persist, just open
+        // the conversation from the cached history.
+        debugPrint('Local cold-start tap → conversationId=$pendingConversationId');
+        onTapConversation?.call(pendingConversationId);
       }
     } catch (e) {
       debugPrint('FCM attach skipped: $e');
@@ -224,6 +264,11 @@ class PushService {
     }
   }
 
+  /// Notification ids must fit in a signed 32-bit integer on both platforms.
+  /// Epoch millis overflow it outright and hash codes can too, so fold the
+  /// seed down to 31 bits.
+  static int _notificationId(Object seed) => seed.hashCode & 0x7fffffff;
+
   /// Shows an in-app banner for a message delivered over the socket while the
   /// app is in the foreground. FCM covers the offline/background case; this
   /// covers online delivery, which never triggers an FCM `onMessage`.
@@ -236,7 +281,7 @@ class PushService {
     try {
       await init();
       await _local.show(
-        id: (conversationId ?? title).hashCode,
+        id: _notificationId(conversationId ?? title),
         title: title,
         body: body,
         notificationDetails: const NotificationDetails(
@@ -266,21 +311,32 @@ class PushService {
     final title = n?.title ?? 'New message';
     final body = n?.body ?? '';
     final data = message.data;
-    _local.show(
-      id: data['messageId']?.hashCode ?? DateTime.now().millisecondsSinceEpoch,
-      title: title,
-      body: body,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'chat_messages',
-          'Chat messages',
-          importance: Importance.high,
-          priority: Priority.high,
+    final conversationId = data['conversationId'] as String?;
+    try {
+      _local.show(
+        id: _notificationId(data['messageId'] ?? conversationId ?? title),
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'chat_messages',
+            'Chat messages',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBanner: true,
+            presentList: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
         ),
-        iOS: DarwinNotificationDetails(),
-      ),
-      payload: data['conversationId'] as String?,
-    );
+        payload: conversationId,
+      );
+    } catch (e) {
+      debugPrint('foreground notification failed: $e');
+    }
     // Persist into local history so the message survives an app restart.
     // onPersistMessage (set by AppState) upserts to the store AND updates the
     // live in-memory list + notifies listeners.

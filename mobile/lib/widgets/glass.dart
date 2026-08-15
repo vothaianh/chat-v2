@@ -2,9 +2,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// A frosted "liquid glass" surface: a backdrop blur behind a translucent fill
-/// with a subtle top highlight and hairline border — the base for glass app bars,
-/// tab bars, and pills used across the app.
 class GlassSurface extends StatelessWidget {
   final Widget child;
   final double blur;
@@ -17,8 +14,8 @@ class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
     required this.child,
-    this.blur = 24,
-    this.opacity = 0.6,
+    this.blur = 28,
+    this.opacity = 0.72,
     this.borderRadius,
     this.border,
     this.padding,
@@ -37,17 +34,9 @@ class GlassSurface extends StatelessWidget {
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: radius,
-            border: border,
-            // Layered fill: translucent surface + faint white sheen for the
-            // "liquid glass" light-catch on top.
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                base.withValues(alpha: opacity + 0.08),
-                base.withValues(alpha: opacity),
-              ],
-            ),
+            border: border ??
+                Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            color: base.withValues(alpha: opacity),
           ),
           child: child,
         ),
@@ -56,7 +45,6 @@ class GlassSurface extends StatelessWidget {
   }
 }
 
-/// One item in the [GlassBottomBar].
 class GlassNavItem {
   final IconData icon;
   final IconData activeIcon;
@@ -64,8 +52,7 @@ class GlassNavItem {
   const GlassNavItem({required this.icon, required this.activeIcon, required this.label});
 }
 
-/// A frosted "liquid glass" bottom navigation bar. Floats over content
-/// (use with `extendBody: true`) with a blurred fill and a pill highlight.
+/// Floating island dock — lime pip on the active tab, no filled slab.
 class GlassBottomBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -81,19 +68,20 @@ class GlassBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    return GlassSurface(
-      blur: 30,
-      opacity: 0.55,
-      border: const Border(
-        top: BorderSide(color: Color(0x1AFFFFFF), width: 0.6),
-      ),
-      child: Padding(
-        padding: EdgeInsets.only(top: 8, bottom: 8 + bottomPad, left: 12, right: 12),
-        child: Row(
-          children: [
-            for (int i = 0; i < items.length; i++)
-              Expanded(child: _item(i)),
-          ],
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 10 + bottomPad),
+      child: GlassSurface(
+        blur: 36,
+        opacity: 0.78,
+        borderRadius: BorderRadius.circular(28),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++)
+                Expanded(child: _item(i)),
+            ],
+          ),
         ),
       ),
     );
@@ -106,40 +94,33 @@ class GlassBottomBar extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: () => onTap(i),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: selected
-              ? const LinearGradient(colors: [AppTheme.primary, AppTheme.primaryDark])
-              : null,
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: AppTheme.primary.withValues(alpha: 0.35),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              selected ? item.activeIcon : item.icon,
-              size: 23,
-              color: selected ? Colors.white : AppTheme.textSecondary,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: selected ? AppTheme.primary : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                selected ? item.activeIcon : item.icon,
+                size: 22,
+                color: selected ? AppTheme.primaryInk : AppTheme.textSecondary,
+              ),
             ),
             const SizedBox(height: 3),
             Text(
-              item.label,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? Colors.white : AppTheme.textSecondary,
+              item.label.toLowerCase(),
+              style: AppTheme.body(
+                size: 10.5,
+                weight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? AppTheme.primary : AppTheme.textFaint,
               ),
             ),
           ],
@@ -149,8 +130,6 @@ class GlassBottomBar extends StatelessWidget {
   }
 }
 
-/// A glass app bar with an optional bottom (e.g. a TabBar). Content scrolls
-/// underneath it, so use with `extendBodyBehindAppBar: true`.
 class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget title;
   final List<Widget> actions;
@@ -165,10 +144,8 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.bottom,
   });
 
-  static const double _barHeight = 56;
+  static const double _barHeight = 58;
 
-  // Status-bar inset read from the primary view (available without a context,
-  // so preferredSize can include it and the reserved height matches the content).
   double get _topInset {
     final view = PlatformDispatcher.instance.views.first;
     return view.padding.top / view.devicePixelRatio;
@@ -182,10 +159,11 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final topPad = MediaQuery.of(context).padding.top;
     return GlassSurface(
-      blur: 30,
+      blur: 32,
       opacity: 0.55,
+      borderRadius: BorderRadius.zero,
       border: const Border(
-        bottom: BorderSide(color: Color(0x1AFFFFFF), width: 0.6),
+        bottom: BorderSide(color: Color(0x12FFFFFF), width: 0.6),
       ),
       child: Padding(
         padding: EdgeInsets.only(top: topPad),
@@ -196,17 +174,10 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
               height: _barHeight,
               child: Row(
                 children: [
-                  if (leading != null)
-                    leading!
-                  else
-                    const SizedBox(width: 20),
+                  if (leading != null) leading! else const SizedBox(width: 20),
                   Expanded(
                     child: DefaultTextStyle.merge(
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
-                      ),
+                      style: AppTheme.display(size: 26, letterSpacing: -1),
                       child: title,
                     ),
                   ),

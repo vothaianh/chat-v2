@@ -19,61 +19,61 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mine = isMine;
     return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 280),
-        margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: isMine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMine ? 16 : 4),
-            bottomRight: Radius.circular(isMine ? 4 : 16),
-          ),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.76),
+        margin: EdgeInsets.only(
+          top: showSender ? 10 : 3,
+          bottom: 3,
+          left: mine ? 48 : 14,
+          right: mine ? 14 : 48,
         ),
-        child: _content(context),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+        decoration: BoxDecoration(
+          color: mine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(22),
+            topRight: const Radius.circular(22),
+            bottomLeft: Radius.circular(mine ? 22 : 6),
+            bottomRight: Radius.circular(mine ? 6 : 22),
+          ),
+          border: mine
+              ? null
+              : Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        ),
+        child: _content(),
       ),
     );
   }
 
-  Widget _content(BuildContext context) {
-    if (showSender && !isMine && senderLabel != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _content() {
+    final onPrimary = isMine ? AppTheme.textOnLime : AppTheme.textPrimary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showSender && !isMine && senderLabel != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
               senderLabel!,
-              style: TextStyle(
-                color: AppTheme.primary,
-                fontWeight: FontWeight.w600,
-                fontSize: 12.5,
-              ),
+              style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.accent),
             ),
           ),
-          _body(context),
-          _meta(),
-        ],
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [_body(context), _meta()],
+        _body(onPrimary),
+        _meta(),
+      ],
     );
   }
 
-  Widget _body(BuildContext context) {
-    final onPrimary = isMine ? Colors.white : AppTheme.textPrimary;
+  Widget _body(Color onPrimary) {
     switch (message.type) {
       case MessageType.sticker:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(message.media ?? '', style: const TextStyle(fontSize: 40)),
+            Text(message.media ?? '', style: const TextStyle(fontSize: 44)),
             if (message.caption != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -86,14 +86,15 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               child: Image.network(
                 message.media ?? '',
-                width: 200,
-                height: 140,
+                width: 210,
+                height: 148,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
-                  width: 200, height: 140,
+                  width: 210,
+                  height: 148,
                   color: AppTheme.surfaceHigh,
                   alignment: Alignment.center,
                   child: const Icon(Icons.broken_image_outlined, color: AppTheme.textSecondary),
@@ -102,7 +103,7 @@ class MessageBubble extends StatelessWidget {
             ),
             if (message.caption != null)
               Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: 6),
                 child: _markdown(message.caption!, onPrimary),
               ),
           ],
@@ -113,14 +114,14 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _markdown(String text, Color color) {
-    // Render mentions as bold colored spans via simple inline parsing.
     return MarkdownBody(
       data: text,
       styleSheet: MarkdownStyleSheet(
-        p: TextStyle(color: color, fontSize: 15, height: 1.35),
-        strong: TextStyle(
-          color: isMine ? Colors.white : AppTheme.mention,
-          fontWeight: FontWeight.w700,
+        p: AppTheme.body(size: 15.5, color: color, height: 1.38),
+        strong: AppTheme.body(
+          size: 15.5,
+          weight: FontWeight.w800,
+          color: isMine ? AppTheme.primaryInk : AppTheme.mention,
         ),
       ),
       extensionSet: null,
@@ -129,17 +130,19 @@ class MessageBubble extends StatelessWidget {
 
   Widget _meta() {
     final time = _time(message.createdAt);
-    final onSecondary = isMine ? Colors.white70 : AppTheme.textSecondary;
+    final onSecondary = isMine
+        ? AppTheme.primaryInk.withValues(alpha: 0.55)
+        : AppTheme.textFaint;
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 5),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(time, style: TextStyle(color: onSecondary, fontSize: 10.5)),
+          Text(time, style: AppTheme.body(size: 10.5, color: onSecondary, weight: FontWeight.w600)),
           if (isMine) ...[
             const SizedBox(width: 4),
             Icon(
-              message.delivered ? Icons.done_all : Icons.access_time,
+              message.delivered ? Icons.done_all_rounded : Icons.schedule_rounded,
               size: 13,
               color: onSecondary,
             ),

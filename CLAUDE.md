@@ -1,1 +1,0 @@
-1. When update backend, need to run docker compose up -d again

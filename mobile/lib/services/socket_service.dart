@@ -31,16 +31,26 @@ class SocketService {
   bool get isConnected => _connected;
 
   void connect(String token, {String? userId}) {
-    if (_socket != null) {
-      _socket!.dispose();
-      _socket = null;
+    final prev = _socket;
+    _socket = null;
+    if (prev != null) {
+      try {
+        prev.dispose();
+      } catch (_) {
+        // Closing an already-closed engine socket throws; ignore.
+      }
     }
+    // forceNew: the socket.io manager is a singleton and otherwise reuses a
+    // handshake that never got the JWT (websocket-only often drops `auth`).
     _socket = io.io(
       Config.socketUrl,
       io.OptionBuilder()
+          .enableForceNew()
           .setTransports(['websocket'])
           .disableAutoConnect()
           .setAuth({'token': token})
+          .setQuery({'token': token})
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
           .build(),
     );
 

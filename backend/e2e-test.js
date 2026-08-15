@@ -124,14 +124,32 @@ async function get(path, token) {
       received.new.text.includes("@" + b.user.username),
   );
 
-  // Verify NO persistence: the message should not appear in any conversation REST response.
+  // Messages are persisted so the app can reload history.
   const convs = await get("/conversations", a.accessToken);
-  const stillThere = JSON.stringify(convs).includes("hey @" + b.user.username);
-  console.log("message persisted anywhere (should be false):", stillThere);
+  const listed = convs.find((c) => c.id === conv.id);
+  const last = listed?.lastMessage;
+  console.log(
+    "conversation list lastMessage:",
+    last ? `${last.type} ${last.text || last.media || ""}` : "(none)",
+  );
+
+  const history = await get("/conversations/" + conv.id + "/messages", a.accessToken);
+  const items = history.messages || [];
+  const texts = items.map((m) => m.text).filter(Boolean);
+  console.log("loaded messages:", items.length, items.map((m) => m.type));
+  const persisted = texts.some((t) => t.includes("hey @" + b.user.username));
+  const lastOk = last && last.conversationId === conv.id && (last.type === "sticker" || last.type === "text");
+  console.log("history includes sent text:", persisted, "lastMessage ok:", !!lastOk);
 
   sockA.disconnect();
   sockB.disconnect();
-  const ok = gotAck && receivedNew && receivedMention && !stillThere;
+  const ok =
+    gotAck &&
+    receivedNew &&
+    receivedMention &&
+    persisted &&
+    lastOk &&
+    items.length >= 2;
   console.log("\n" + (ok ? "PASS ✅" : "FAIL ❌"));
   process.exit(ok ? 0 : 1);
 })().catch((e) => {

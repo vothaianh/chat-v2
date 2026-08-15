@@ -6,6 +6,8 @@ import '../models/models.dart';
 import '../services/app_state.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/media_picker.dart';
+import '../widgets/pulse.dart';
+import '../widgets/glass.dart';
 
 class ChatScreen extends StatefulWidget {
   final Conversation conversation;
@@ -21,15 +23,19 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isTyping = false;
   Timer? _typingTimer;
   late final AppState _app;
-  int _lastMessageCount = 0; // tracks incoming messages to auto-scroll
+  int _lastMessageCount = 0;
 
   @override
   void initState() {
     super.initState();
     _app = context.read<AppState>();
     _app.socket.joinConversation(widget.conversation.id);
-    _app.socket.markRead(widget.conversation.id);
-    _app.setActiveConversation(widget.conversation.id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _app.setActiveConversation(widget.conversation.id);
+      _app.markConversationRead(widget.conversation.id);
+      _app.loadMessages(widget.conversation.id);
+    });
   }
 
   @override
@@ -61,157 +67,193 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     context.read<AppState>().sendText(widget.conversation.id, text);
     _inputCtrl.clear();
-    _scrollToBottom();
+    _scrollToLatest();
   }
 
   void _openMediaPicker() {
     final app = context.read<AppState>();
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: AppTheme.surface,
       builder: (_) => MediaPicker(
         onSticker: (s) {
           app.sendSticker(widget.conversation.id, s);
           Navigator.pop(context);
-          _scrollToBottom();
+          _scrollToLatest();
         },
         onGif: (url, {caption}) {
           app.sendGif(widget.conversation.id, url, caption: caption);
           Navigator.pop(context);
-          _scrollToBottom();
+          _scrollToLatest();
         },
       ),
     );
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients) {
+  /// List is `reverse: true`, so offset 0 is the latest message.
+  void _scrollToLatest({bool instant = false}) {
+    void jump() {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      if (instant) {
+        _scrollCtrl.jumpTo(0);
+      } else {
         _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
         );
       }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      jump();
+      // Images / date chips can grow the list after the first layout.
+      WidgetsBinding.instance.addPostFrameCallback((_) => jump());
     });
   }
+
+  bool get _pinnedToLatest =>
+      !_scrollCtrl.hasClients || _scrollCtrl.position.pixels <= 80;
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final messages = app.messagesFor(widget.conversation.id);
-    debugPrint('[chat-ui] build conv=${widget.conversation.id} count=${messages.length} last=${messages.isEmpty ? "(empty)" : messages.last.text}');
     final typingUserIds = app.typingUserIdsFor(widget.conversation.id);
 
-    // Auto-scroll to the bottom when a new message arrives (incoming or our
-    // optimistic echo) — only if we were already near the bottom, so we don't
-    // yank the user up while they're reading older messages.
     if (messages.length != _lastMessageCount) {
-      final atBottom = !_scrollCtrl.hasClients ||
-          _scrollCtrl.position.pixels >=
-              _scrollCtrl.position.maxScrollExtent - 120;
+      final follow = _lastMessageCount == 0 || _pinnedToLatest;
       _lastMessageCount = messages.length;
-      if (atBottom) _scrollToBottom();
+      if (follow) _scrollToLatest(instant: true);
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            _avatar(app),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    app.conversationTitle(widget.conversation),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  if (typingUserIds.isNotEmpty)
-                    Text(
-                      'typing…',
-                      style: const TextStyle(color: AppTheme.accent, fontSize: 12),
-                    )
-                  else if (widget.conversation.type == ConversationType.private)
-                    _privatePresence(app)
-                  else
-                    Text(
-                      '${widget.conversation.members.length} members',
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                    ),
-                ],
+    final title = app.conversationTitle(widget.conversation);
+    final isGroup = widget.conversation.type == ConversationType.group;
+
+    return PulseBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          titleSpacing: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          title: Row(
+            children: [
+              PulseAvatar(label: title, size: 36, group: isGroup, online: !isGroup && _isOtherOnline(app)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTheme.display(size: 17, letterSpacing: -0.4)),
+                    if (typingUserIds.isNotEmpty)
+                      Text('typing…', style: AppTheme.body(size: 11.5, weight: FontWeight.w700, color: AppTheme.primary))
+                    else if (!isGroup)
+                      _privatePresence(app)
+                    else
+                      Text('${widget.conversation.members.length} in the mix',
+                          style: AppTheme.body(size: 11.5, color: AppTheme.textSecondary)),
+                  ],
+                ),
               ),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: messages.isEmpty
+                  ? Center(
+                      child: app.isLoadingMessages(widget.conversation.id)
+                          ? const CircularProgressIndicator()
+                          : const PulseEmpty(
+                              title: 'say something.',
+                              subtitle: 'first message sets the vibe.',
+                              icon: Icons.waving_hand_rounded,
+                            ),
+                    )
+                  : ListView.builder(
+                      controller: _scrollCtrl,
+                      reverse: true,
+                      padding: const EdgeInsets.only(top: 16, bottom: 8),
+                      itemCount: messages.length,
+                      itemBuilder: (context, i) {
+                        final index = messages.length - 1 - i;
+                        final m = messages[index];
+                        final isMine = m.senderId == app.currentUserId;
+                        final prev = index > 0 ? messages[index - 1] : null;
+                        final showSender = !isMine && (prev == null || prev.senderId != m.senderId);
+                        final showDate = prev == null || !_sameDay(prev.createdAt, m.createdAt);
+                        return Column(
+                          children: [
+                            if (showDate) _dateChip(m.createdAt),
+                            MessageBubble(
+                              message: m,
+                              isMine: isMine,
+                              showSender: showSender,
+                              senderLabel: (m.senderFullName != null && m.senderFullName!.isNotEmpty)
+                                  ? m.senderFullName
+                                  : (m.senderUsername != null ? '@${m.senderUsername}' : null),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
             ),
+            if (typingUserIds.isNotEmpty) _typingBar(typingUserIds, app),
+            _inputBar(),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: messages.isEmpty
-                ? const Center(child: Text('Say hi 👋', style: TextStyle(color: AppTheme.textSecondary)))
-                : ListView.builder(
-                    controller: _scrollCtrl,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    itemCount: messages.length,
-                    itemBuilder: (context, i) {
-                      final m = messages[i];
-                      final isMine = m.senderId == app.currentUserId;
-                      final prev = i > 0 ? messages[i - 1] : null;
-                      final showSender = !isMine &&
-                          (prev == null || prev.senderId != m.senderId);
-                      return MessageBubble(
-                        message: m,
-                        isMine: isMine,
-                        showSender: showSender,
-                        senderLabel: m.senderUsername != null ? '@${m.senderUsername}' : null,
-                      );
-                    },
-                  ),
-          ),
-          if (typingUserIds.isNotEmpty) _typingBar(typingUserIds, app),
-          _inputBar(),
-        ],
+    );
+  }
+
+  bool _sameDay(int a, int b) {
+    final da = DateTime.fromMillisecondsSinceEpoch(a);
+    final db = DateTime.fromMillisecondsSinceEpoch(b);
+    return da.year == db.year && da.month == db.month && da.day == db.day;
+  }
+
+  Widget _dateChip(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(d.year, d.month, d.day);
+    final label = day == today
+        ? 'today'
+        : today.difference(day).inDays == 1
+            ? 'yesterday'
+            : '${d.day} ${_month(d.month)}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceElevated,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(label, style: AppTheme.body(size: 11, weight: FontWeight.w700, color: AppTheme.textSecondary)),
       ),
     );
   }
 
-  Widget _avatar(AppState app) {
-    final title = app.conversationTitle(widget.conversation);
-    final initial = title.isNotEmpty ? title.substring(0, 1).toUpperCase() : '?';
-    return CircleAvatar(
-      radius: 18,
-      backgroundColor: widget.conversation.type == ConversationType.group ? AppTheme.accent : AppTheme.primary,
-      child: Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-    );
+  String _month(int m) {
+    const names = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    return names[m - 1];
+  }
+
+  bool _isOtherOnline(AppState app) {
+    final other = widget.conversation.members.where((m) => m.userId != app.currentUserId).toList();
+    return other.isNotEmpty && app.isOnline(other.first.userId);
   }
 
   Widget _privatePresence(AppState app) {
-    final other = widget.conversation.members
-        .where((m) => m.userId != app.currentUserId)
-        .toList();
-    if (other.isEmpty) return const SizedBox.shrink();
-    final online = app.isOnline(other.first.userId);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8, height: 8,
-          decoration: BoxDecoration(
-            color: online ? AppTheme.online : AppTheme.offline,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          online ? 'Online' : 'Offline',
-          style: TextStyle(color: online ? AppTheme.online : AppTheme.textSecondary, fontSize: 12),
-        ),
-      ],
+    final online = _isOtherOnline(app);
+    return Text(
+      online ? 'live now' : 'offline',
+      style: AppTheme.body(size: 11.5, weight: FontWeight.w700, color: online ? AppTheme.primary : AppTheme.textFaint),
     );
   }
 
@@ -223,53 +265,74 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       return m.fullName ?? m.username ?? 'someone';
     }).join(', ');
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: AppTheme.surface,
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 14, height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accent),
-          ),
-          const SizedBox(width: 8),
-          Text('$names is typing…', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12.5)),
-        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+      child: Text(
+        '$names is cooking a reply…',
+        style: AppTheme.body(size: 12.5, weight: FontWeight.w600, color: AppTheme.primary),
       ),
     );
   }
 
   Widget _inputBar() {
     return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: const BoxDecoration(
-          color: AppTheme.surface,
-          border: Border(top: BorderSide(color: AppTheme.divider)),
-        ),
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              icon: const Icon(Icons.emoji_emotions_outlined, color: AppTheme.primary),
-              onPressed: _openMediaPicker,
+            GestureDetector(
+              onTap: _openMediaPicker,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.divider),
+                ),
+                child: const Icon(Icons.add_rounded, color: AppTheme.primary),
+              ),
             ),
+            const SizedBox(width: 8),
             Expanded(
-              child: TextField(
-                controller: _inputCtrl,
-                onChanged: _onChanged,
-                minLines: 1,
-                maxLines: 5,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  hintText: '',
-                  isDense: true,
+              child: GlassSurface(
+                blur: 20,
+                opacity: 0.8,
+                borderRadius: BorderRadius.circular(22),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: TextField(
+                  controller: _inputCtrl,
+                  onChanged: _onChanged,
+                  minLines: 1,
+                  maxLines: 5,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: AppTheme.body(size: 15.5),
+                  decoration: InputDecoration(
+                    hintText: 'say it',
+                    isDense: true,
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
                 ),
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.send, color: AppTheme.primary),
-              onPressed: _send,
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _send,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.arrow_upward_rounded, color: AppTheme.primaryInk),
+              ),
             ),
           ],
         ),

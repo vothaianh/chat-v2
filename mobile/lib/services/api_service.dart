@@ -66,6 +66,41 @@ class ApiService {
     throw ApiException(res);
   }
 
+  static Future<({List<ChatMessage> messages, bool hasMore})> listMessages(
+    String token,
+    String conversationId, {
+    int limit = 50,
+    int? before,
+  }) async {
+    final q = <String, String>{
+      'limit': '$limit',
+      if (before != null) 'before': '$before',
+    };
+    final res = await http.get(
+      _u('/conversations/$conversationId/messages').replace(queryParameters: q),
+      headers: await _headers(token),
+    );
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body);
+      final list = (body is List) ? body : (body['messages'] as List? ?? const []);
+      final hasMore = body is Map<String, dynamic> ? (body['hasMore'] == true) : false;
+      return (
+        messages: list
+            .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        hasMore: hasMore,
+      );
+    }
+    throw ApiException(res);
+  }
+
+  static Future<void> markRead(String token, String conversationId) async {
+    await http.post(
+      _u('/conversations/$conversationId/read'),
+      headers: await _headers(token),
+    );
+  }
+
   static Future<Conversation> createPrivate(String token, String userId) async {
     final res = await http.post(
       _u('/conversations/private'),

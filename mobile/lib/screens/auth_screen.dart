@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
+import '../widgets/pulse.dart';
 
 class AuthScreen extends StatefulWidget {
   final AppState app;
@@ -45,118 +46,118 @@ class _AuthScreenState extends State<AuthScreen> {
     }
     if (!ok && widget.app.error != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.app.error!), backgroundColor: Colors.red.shade700),
+        SnackBar(content: Text(widget.app.error!), backgroundColor: AppTheme.danger),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      width: 72,
-                      height: 72,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(Icons.forum, color: Colors.white, size: 38),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      _isLogin ? 'Welcome back' : 'Create your account',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary,
+    return PulseBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          width: 56,
+                          height: 56,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary,
+                            borderRadius: BorderRadius.circular(18),
                           ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _isLogin ? 'Sign in to continue chatting' : 'Join the conversation in seconds',
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-                    ),
-                    const SizedBox(height: 26),
-                    if (!_isLogin) ...[
-                      _field(
-                        controller: _usernameCtrl,
-                        label: 'Username',
-                        hint: 'e.g. vothaianh',
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a username' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _field(
-                        controller: _fullNameCtrl,
-                        label: 'Full name',
-                        hint: 'Anh Vo Thai',
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your full name' : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _field(
-                        controller: _emailCtrl,
-                        label: 'Email',
-                        hint: 'you@example.com',
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (v) => (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
-                      ),
-                      const SizedBox(height: 14),
-                    ] else ...[
-                      _field(
-                        controller: _loginCtrl,
-                        label: 'Username or email',
-                        hint: 'vothaianh',
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter username or email' : null,
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    _field(
-                      controller: _passwordCtrl,
-                      label: 'Password',
-                      hint: '••••••••',
-                      obscure: _obscure,
-                      suffix: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, size: 20),
-                        onPressed: () => setState(() => _obscure = !_obscure),
-                      ),
-                      validator: (v) => (v == null || v.length < 8) ? 'At least 8 characters' : null,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: widget.app.loading ? null : _submit,
-                      child: widget.app.loading
-                          ? const SizedBox(
-                              height: 20, width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : Text(_isLogin ? 'Sign in' : 'Create account'),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _isLogin ? "Don't have an account?" : 'Already have an account?',
-                          style: const TextStyle(color: AppTheme.textSecondary),
+                          child: const Icon(Icons.bolt_rounded, color: AppTheme.primaryInk, size: 30),
                         ),
-                        TextButton(
-                          onPressed: () => setState(() => _isLogin = !_isLogin),
-                          child: Text(_isLogin ? 'Sign up' : 'Sign in'),
+                      ),
+                      const SizedBox(height: 22),
+                      Text(_isLogin ? 'hey,\nyou’re back.' : 'new here.\nlet’s go.', style: AppTheme.display(size: 40, letterSpacing: -1.6)),
+                      const SizedBox(height: 10),
+                      Text(
+                        _isLogin ? 'drop in. your people are already talking.' : 'username, vibe, password. thirty seconds.',
+                        style: AppTheme.body(size: 15, color: AppTheme.textSecondary, height: 1.45),
+                      ),
+                      const SizedBox(height: 32),
+                      if (!_isLogin) ...[
+                        _field(
+                          controller: _usernameCtrl,
+                          label: 'username',
+                          hint: 'vothaianh',
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'need a username' : null,
                         ),
+                        const SizedBox(height: 12),
+                        _field(
+                          controller: _fullNameCtrl,
+                          label: 'full name',
+                          hint: 'Anh Vo Thai',
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'who are you?' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        _field(
+                          controller: _emailCtrl,
+                          label: 'email',
+                          hint: 'you@example.com',
+                          keyboardType: TextInputType.emailAddress,
+                          validator: (v) => (v == null || !v.contains('@')) ? 'that email looks off' : null,
+                        ),
+                        const SizedBox(height: 12),
+                      ] else ...[
+                        _field(
+                          controller: _loginCtrl,
+                          label: 'username or email',
+                          hint: 'vothaianh',
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'type something' : null,
+                        ),
+                        const SizedBox(height: 12),
                       ],
-                    ),
-                  ],
+                      _field(
+                        controller: _passwordCtrl,
+                        label: 'password',
+                        hint: '••••••••',
+                        obscure: _obscure,
+                        suffix: IconButton(
+                          icon: Icon(_obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 20),
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                        ),
+                        validator: (v) => (v == null || v.length < 8) ? '8+ characters' : null,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: widget.app.loading ? null : _submit,
+                        child: widget.app.loading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryInk),
+                              )
+                            : Text(_isLogin ? 'enter' : 'create account'),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _isLogin ? "no account?" : 'already in?',
+                            style: AppTheme.body(color: AppTheme.textSecondary),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() => _isLogin = !_isLogin),
+                            child: Text(_isLogin ? 'sign up' : 'sign in'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -7,6 +7,7 @@ import 'services/app_state.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/root_shell.dart';
+import 'widgets/pulse.dart';
 
 /// Shared bootstrap used by the flavor entrypoints (main_dev / main_prod).
 /// Defaulting here to the flavor resolved from dart-defines keeps `main.dart`
@@ -53,7 +54,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     debugPrint('[notif-tap] navigator state: ${nav != null}');
     if (nav == null) return;
     nav.popUntil((route) => route.isFirst);
-    nav.push(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)));
+    nav.push(pulseRoute(ChatScreen(conversation: conv)));
     debugPrint('[notif-tap] pushed ChatScreen');
   }
 
@@ -86,8 +87,26 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
         home: Consumer<AppState>(
           builder: (context, app, _) {
             if (!app.bootstrapped) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+              return Scaffold(
+                backgroundColor: AppTheme.background,
+                body: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(Icons.bolt_rounded, color: AppTheme.primaryInk, size: 34),
+                      ),
+                      const SizedBox(height: 18),
+                      Text('truepilot', style: AppTheme.display(size: 22)),
+                    ],
+                  ),
+                ),
               );
             }
             if (!app.isAuthenticated) return AuthScreen(app: app);

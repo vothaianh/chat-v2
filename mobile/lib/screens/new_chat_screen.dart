@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
+import '../widgets/pulse.dart';
 import 'chat_screen.dart';
 
 class NewChatScreen extends StatefulWidget {
@@ -21,15 +22,15 @@ class _NewChatScreenState extends State<NewChatScreen> {
   void dispose() {
     _usernameCtrl.dispose();
     _titleCtrl.dispose();
-    for (final c in _memberCtrls) c.dispose();
+    for (final c in _memberCtrls) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   void _ensureGroupControllers() {
-    if (_memberCtrls.length < 2) {
-      while (_memberCtrls.length < 2) {
-        _memberCtrls.add(TextEditingController());
-      }
+    while (_memberCtrls.length < 2) {
+      _memberCtrls.add(TextEditingController());
     }
   }
 
@@ -40,7 +41,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
       if (uname.isEmpty) return;
       final conv = await app.startPrivateWith(uname);
       if (conv != null && mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)));
+        Navigator.of(context).pushReplacement(pulseRoute(ChatScreen(conversation: conv)));
       }
     } else {
       _ensureGroupControllers();
@@ -48,68 +49,70 @@ class _NewChatScreenState extends State<NewChatScreen> {
       if (members.isEmpty) return;
       final conv = await app.startGroup(_titleCtrl.text.trim(), members);
       if (conv != null && mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ChatScreen(conversation: conv)));
+        Navigator.of(context).pushReplacement(pulseRoute(ChatScreen(conversation: conv)));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('New chat')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, icon: Icon(Icons.person), label: Text('Private')),
-                ButtonSegment(value: true, icon: Icon(Icons.group), label: Text('Group')),
-              ],
-              selected: {_groupMode},
-              onSelectionChanged: (s) => setState(() => _groupMode = s.first),
-            ),
-            const SizedBox(height: 24),
-            if (_groupMode) ...[
-              TextField(
-                controller: _titleCtrl,
-                decoration: const InputDecoration(labelText: 'Group name (optional)'),
+    return PulseBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: Text(_groupMode ? 'new group' : 'new dm')),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, icon: Icon(Icons.person_outline_rounded), label: Text('dm')),
+                  ButtonSegment(value: true, icon: Icon(Icons.groups_2_outlined), label: Text('group')),
+                ],
+                selected: {_groupMode},
+                onSelectionChanged: (s) => setState(() => _groupMode = s.first),
               ),
-              const SizedBox(height: 16),
-            ]
-            else
-              TextField(
-                controller: _usernameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  hintText: '@vothaianh',
-                  prefixText: '@',
+              const SizedBox(height: 28),
+              if (_groupMode) ...[
+                TextField(
+                  controller: _titleCtrl,
+                  decoration: const InputDecoration(labelText: 'group name', hintText: 'optional'),
                 ),
-              ),
-            const SizedBox(height: 16),
-            if (_groupMode) ..._memberFields(),
-            if (_groupMode)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _memberCtrls.add(TextEditingController())),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add member'),
+                const SizedBox(height: 14),
+              ] else
+                TextField(
+                  controller: _usernameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'username',
+                    hintText: 'vothaianh',
+                    prefixText: '@',
+                  ),
                 ),
+              const SizedBox(height: 14),
+              if (_groupMode) ..._memberFields(),
+              if (_groupMode)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => _memberCtrls.add(TextEditingController())),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('add someone'),
+                  ),
+                ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _start,
+                child: Text(_groupMode ? 'make the group' : 'slide in'),
               ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _start,
-              child: Text(_groupMode ? 'Create group' : 'Start chat'),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Tag people by username anywhere in a message, e.g. "hey @vothaianh"',
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(height: 18),
+              Text(
+                'tag people anywhere — try “hey @vothaianh”',
+                style: AppTheme.body(size: 13, color: AppTheme.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -127,14 +130,14 @@ class _NewChatScreenState extends State<NewChatScreen> {
                 child: TextField(
                   controller: _memberCtrls[i],
                   decoration: InputDecoration(
-                    labelText: 'Member ${i + 1} username',
+                    labelText: 'member ${i + 1}',
                     prefixText: '@',
                   ),
                 ),
               ),
               if (_memberCtrls.length > 2)
                 IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                  icon: const Icon(Icons.remove_circle_outline, color: AppTheme.danger),
                   onPressed: () => setState(() {
                     _memberCtrls[i].dispose();
                     _memberCtrls.removeAt(i);
