@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { DeviceTokensModule } from './device-tokens/device-tokens.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { StorageModule, UploadsModule } from './uploads/uploads.module';
 import { GlobalJwtGuard } from './auth/global-jwt.guard';
 import { User } from './users/user.entity';
 import { DeviceToken } from './device-tokens/device-token.entity';
@@ -36,8 +37,10 @@ import { Message } from './conversations/message.entity';
     AuthModule,
     UsersModule,
     DeviceTokensModule,
+    StorageModule,
     ConversationsModule,
     RealtimeModule,
+    UploadsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: GlobalJwtGuard },

@@ -9,7 +9,7 @@ import {
 import { Conversation } from './conversation.entity';
 import { User } from '../users/user.entity';
 
-export type MessageType = 'text' | 'sticker' | 'gif';
+export type MessageType = 'text' | 'sticker' | 'gif' | 'image' | 'call';
 
 @Entity('message')
 @Index('idx_message_conversation_created', ['conversationId', 'createdAt'])
@@ -38,7 +38,7 @@ export class Message {
   @Column({ type: 'text', nullable: true })
   text: string | null;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'varchar', length: 2048, nullable: true })
   media: string | null;
 
   @Column({ type: 'text', nullable: true })

@@ -162,6 +162,13 @@ class _ConversationsScreenState extends State<ConversationsScreen>
                   ),
                 ),
                 const SizedBox(width: 10),
+                if (!isGroup || c.members.length == 2)
+                  IconButton(
+                    tooltip: 'voice call',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _startCall(context, app, c),
+                    icon: const Icon(Icons.call_rounded, color: AppTheme.primary, size: 20),
+                  ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -205,6 +212,13 @@ class _ConversationsScreenState extends State<ConversationsScreen>
     );
   }
 
+  Future<void> _startCall(BuildContext context, AppState app, Conversation c) async {
+    final ok = await app.startCall(c, video: false);
+    if (ok || !context.mounted) return;
+    final err = app.calls.lastError ?? app.error ?? 'couldn’t start call';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+  }
+
   bool _isOtherOnline(Conversation c, AppState app) {
     final other = c.members.where((m) => m.userId != app.currentUserId).toList();
     if (other.isEmpty) return false;
@@ -230,6 +244,8 @@ class _ConversationsScreenState extends State<ConversationsScreen>
       MessageType.text => m.text ?? '',
       MessageType.sticker => m.media ?? 'sticker',
       MessageType.gif => (m.caption?.isNotEmpty ?? false) ? m.caption! : 'gif',
+      MessageType.image => (m.caption?.isNotEmpty ?? false) ? m.caption! : 'photo',
+      MessageType.call => m.text ?? (m.media == 'video' ? 'video call' : 'voice call'),
     };
     if (c.type == ConversationType.group && name.isNotEmpty) return '$name  $body';
     return mine ? 'you  $body' : body;

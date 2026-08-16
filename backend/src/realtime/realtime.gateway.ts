@@ -15,6 +15,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../conversations/messages.service';
 import { UsersService } from '../users/users.service';
 import { PresenceService } from './presence.service';
+import { CallsService, CallMedia } from './calls.service';
 import { extractMentions } from './mentions';
 import { PUSH_SERVICE, PushService } from '../push/push.service';
 import { DeviceTokensService } from '../device-tokens/device-tokens.service';
@@ -38,6 +39,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly users: UsersService,
     private readonly presence: PresenceService,
     private readonly devices: DeviceTokensService,
+    private readonly calls: CallsService,
     @Inject(PUSH_SERVICE) private readonly push: PushService,
   ) {}
 
@@ -99,6 +101,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!this.presence.isOnline(userId)) {
       this.broadcastPresence(userId, false);
     }
+    const live = this.calls.findByUser(userId);
+    if (live) {
+      const reason =
+        live.state === 'ringing'
+          ? userId === live.callerId
+            ? 'cancelled'
+            : 'timeout'
+          : 'disconnect';
+      this.endCall(live.id, reason);
+    }
     this.logger.log(`disconnected: ${client.data.username}`);
   }
 
@@ -114,16 +126,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const userId: string = client.data.userId;
     const isMember = await this.conversations.isMember(dto.conversationId, userId);
     if (!isMember) throw new WsException('Not a conversation member');
+    if (dto.type === 'image' && !dto.media) {
+      throw new WsException('Image message requires media');
+    }
 
     const ts = Date.now();
     const sender = await this.users.findById(userId);
+    const media = await this.messages.resolveMedia(dto.media ?? null);
 
     const envelope = {
       id: dto.clientId || `${userId}-${ts}`,
       conversationId: dto.conversationId,
       type: dto.type,
       text: dto.text,
-      media: dto.media,
+      media,
       caption: dto.caption,
       senderId: userId,
       sender: sender ? this.users.toPublic(sender) : undefined,
@@ -137,7 +153,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         senderId: userId,
         type: dto.type,
         text: dto.text,
-        media: dto.media,
+        media: dto.media, // persist the key / raw ref, not the signed URL
         caption: dto.caption,
         createdAt: new Date(ts),
       });
@@ -209,6 +225,122 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { ok: true };
   }
 
+  @SubscribeMessage('call:invite')
+  async onCallInvite(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { conversationId: string; media?: CallMedia; callId?: string },
+  ) {
+    const userId: string = client.data.userId;
+    if (!body?.conversationId) throw new WsException('conversationId required');
+    const media: CallMedia = body.media === 'video' ? 'video' : 'audio';
+    await this.conversations.requireMembership(body.conversationId, userId);
+    const members = await this.conversations.getMemberIds(body.conversationId);
+    const others = members.filter((id) => id !== userId);
+    if (others.length !== 1) throw new WsException('Calls are 1:1 only');
+    const calleeId = others[0];
+    if (this.calls.findByUser(userId) || this.calls.findByUser(calleeId)) {
+      client.emit('call:busy', { conversationId: body.conversationId });
+      return { ok: false, reason: 'busy' };
+    }
+    const callId = (body.callId && String(body.callId).slice(0, 64)) || `${userId}-${Date.now()}`;
+    const caller = await this.users.findById(userId);
+    const call = this.calls.start({
+      id: callId,
+      conversationId: body.conversationId,
+      callerId: userId,
+      calleeId,
+      media,
+      onTimeout: (c) => this.endCall(c.id, 'timeout'),
+    });
+    const payload = {
+      callId: call.id,
+      conversationId: call.conversationId,
+      media: call.media,
+      fromUserId: userId,
+      fromUsername: caller?.username ?? client.data.username,
+      fromFullName: caller?.fullName ?? client.data.username,
+      iceServers: this.calls.iceServers(),
+    };
+    this.server.to(this.userRoom(calleeId)).emit('call:incoming', payload);
+    client.emit('call:ringing', payload);
+    if (!this.presence.isOnline(calleeId)) {
+      const tokens = await this.devices.getTokensForUsers([calleeId]);
+      if (tokens.length) {
+        await this.push.send(tokens, {
+          title: caller ? `${caller.fullName ?? caller.username}` : 'Incoming call',
+          body: media === 'video' ? 'Video call' : 'Voice call',
+          data: {
+            type: 'call',
+            callId: call.id,
+            conversationId: call.conversationId,
+            media,
+            senderId: userId,
+          },
+        });
+      }
+    }
+    return { ok: true, callId: call.id };
+  }
+
+  @SubscribeMessage('call:accept')
+  onCallAccept(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string }) {
+    const userId: string = client.data.userId;
+    const call = this.calls.find(body?.callId);
+    if (!call || call.calleeId !== userId) throw new WsException('Call not found');
+    this.calls.activate(call.id);
+    this.server.to(this.userRoom(call.callerId)).emit('call:accepted', { callId: call.id });
+    return { ok: true };
+  }
+
+  @SubscribeMessage('call:reject')
+  onCallReject(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string }) {
+    const userId: string = client.data.userId;
+    const call = this.calls.find(body?.callId);
+    if (!call || (call.calleeId !== userId && call.callerId !== userId)) {
+      throw new WsException('Call not found');
+    }
+    this.endCall(call.id, 'rejected');
+    return { ok: true };
+  }
+
+  @SubscribeMessage('call:cancel')
+  onCallCancel(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string }) {
+    const userId: string = client.data.userId;
+    const call = this.calls.find(body?.callId);
+    if (!call || call.callerId !== userId) throw new WsException('Call not found');
+    this.endCall(call.id, 'cancelled');
+    return { ok: true };
+  }
+
+  @SubscribeMessage('call:hangup')
+  onCallHangup(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string }) {
+    const userId: string = client.data.userId;
+    const call = this.calls.find(body?.callId);
+    if (!call || (call.calleeId !== userId && call.callerId !== userId)) {
+      throw new WsException('Call not found');
+    }
+    this.endCall(call.id, 'hangup');
+    return { ok: true };
+  }
+
+  @SubscribeMessage('call:offer')
+  onCallOffer(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string; sdp: unknown }) {
+    this.relaySignal(client, body?.callId, 'call:offer', { sdp: body?.sdp });
+  }
+
+  @SubscribeMessage('call:answer')
+  onCallAnswer(@ConnectedSocket() client: Socket, @MessageBody() body: { callId: string; sdp: unknown }) {
+    this.relaySignal(client, body?.callId, 'call:answer', { sdp: body?.sdp });
+  }
+
+  @SubscribeMessage('call:ice')
+  onCallIce(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { callId: string; candidate: unknown },
+  ) {
+    this.relaySignal(client, body?.callId, 'call:ice', { candidate: body?.candidate });
+  }
+
   // ---- helpers ----
   private room(conversationId: string) {
     return `conv:${conversationId}`;
@@ -220,6 +352,95 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private broadcastPresence(userId: string, online: boolean) {
     this.server.emit('presence:update', { userId, online });
+  }
+
+  private relaySignal(client: Socket, callId: string, event: string, extra: Record<string, unknown>) {
+    const userId: string = client.data.userId;
+    const call = this.calls.find(callId);
+    if (!call || (call.callerId !== userId && call.calleeId !== userId)) {
+      throw new WsException('Call not found');
+    }
+    const peer = this.calls.peerOf(call, userId);
+    this.server.to(this.userRoom(peer)).emit(event, { callId, ...extra });
+  }
+
+  private endCall(callId: string, reason: string) {
+    const call = this.calls.end(callId);
+    if (!call) return;
+    const payload = { callId, reason, conversationId: call.conversationId };
+    this.server.to(this.userRoom(call.callerId)).emit('call:ended', payload);
+    this.server.to(this.userRoom(call.calleeId)).emit('call:ended', payload);
+    this.persistCallHistory(call, reason).catch((e) =>
+      this.logger.error(`call history persist failed: ${(e as Error).message}`),
+    );
+  }
+
+  private async persistCallHistory(
+    call: { id: string; conversationId: string; callerId: string; media: CallMedia; state: string; activatedAt?: number },
+    reason: string,
+  ) {
+    const ts = Date.now();
+    const durationMs =
+      call.state === 'active' && call.activatedAt ? Math.max(0, ts - call.activatedAt) : 0;
+    const text = this.callHistoryText(call.media, reason, durationMs);
+    const id = `call-${call.id}`.slice(0, 64);
+    try {
+      await this.messages.persist({
+        id,
+        conversationId: call.conversationId,
+        senderId: call.callerId,
+        type: 'call',
+        text,
+        media: call.media,
+        caption: reason,
+        createdAt: new Date(ts),
+      });
+    } catch (e) {
+      this.logger.error(`call history persist failed: ${(e as Error).message}`);
+    }
+    const sender = await this.users.findById(call.callerId);
+    this.server.to(this.room(call.conversationId)).emit('message:new', {
+      id,
+      conversationId: call.conversationId,
+      type: 'call',
+      text,
+      media: call.media,
+      caption: reason,
+      senderId: call.callerId,
+      sender: sender ? this.users.toPublic(sender) : undefined,
+      createdAt: ts,
+    });
+  }
+
+  private callHistoryText(media: CallMedia, reason: string, durationMs: number) {
+    const kind = media === 'video' ? 'Video call' : 'Voice call';
+    if (durationMs > 0) {
+      return `${kind} · ${this.formatCallDuration(durationMs)}`;
+    }
+    switch (reason) {
+      case 'rejected':
+        return `Declined ${kind.toLowerCase()}`;
+      case 'cancelled':
+        return `Cancelled ${kind.toLowerCase()}`;
+      case 'timeout':
+        return `Missed ${kind.toLowerCase()}`;
+      case 'busy':
+        return `Busy · ${kind.toLowerCase()}`;
+      case 'disconnect':
+        return `${kind} dropped`;
+      default:
+        return kind;
+    }
+  }
+
+  private formatCallDuration(ms: number) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const two = (n: number) => n.toString().padStart(2, '0');
+    if (h > 0) return `${h}:${two(m)}:${two(s)}`;
+    return `${m}:${two(s)}`;
   }
 
   private async deliverPushForOffline(dto: SendMessageDto, envelope: any) {
@@ -236,6 +457,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         break;
       case 'sticker':
         body = '🎨 Sticker';
+        break;
+      case 'image':
+        body = dto.caption?.trim() ? dto.caption : '📷 Photo';
         break;
       default:
         body = dto.text || '';

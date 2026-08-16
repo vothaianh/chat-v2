@@ -52,7 +52,18 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>audio</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>TruePilot Chat uses the camera for video calls and to send photos in a conversation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TruePilot Chat uses the microphone for voice and video calls.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TruePilot Chat uses the local network to connect audio and video calls.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TruePilot Chat needs photo access so you can send images in a conversation.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>TruePilot Chat can save images you receive to your library.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

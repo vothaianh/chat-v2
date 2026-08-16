@@ -4,8 +4,10 @@ import 'config/app_config.dart';
 import 'services/config.dart';
 import 'theme/app_theme.dart';
 import 'services/app_state.dart';
+import 'services/call_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/call_screen.dart';
 import 'screens/root_shell.dart';
 import 'widgets/pulse.dart';
 
@@ -30,6 +32,8 @@ class ChatApp extends StatefulWidget {
 }
 
 class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
+  String? _seenCallError;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +41,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     // Wire notification taps → open the conversation. Lives in the UI layer so
     // it can import ChatScreen without a service/screen import cycle.
     widget.appState.push.onTapConversation = _openConversationFromNotification;
+    widget.appState.calls.addListener(_onCallsChanged);
     widget.appState.bootstrap();
   }
 
@@ -58,8 +63,23 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     debugPrint('[notif-tap] pushed ChatScreen');
   }
 
+  void _onCallsChanged() {
+    final calls = widget.appState.calls;
+    if (calls.phase != CallPhase.idle) {
+      _seenCallError = null;
+      return;
+    }
+    final err = calls.lastError;
+    if (err == null || err == _seenCallError) return;
+    _seenCallError = err;
+    final ctx = widget.appState.navigatorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(err)));
+  }
+
   @override
   void dispose() {
+    widget.appState.calls.removeListener(_onCallsChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -77,41 +97,68 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: widget.appState,
-      child: MaterialApp(
-        navigatorKey: widget.appState.navigatorKey,
-        title: Config.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark(),
-        darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.dark,
-        home: Consumer<AppState>(
-          builder: (context, app, _) {
-            if (!app.bootstrapped) {
-              return Scaffold(
-                backgroundColor: AppTheme.background,
-                body: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+      child: ChangeNotifierProvider.value(
+        value: widget.appState.calls,
+        child: MaterialApp(
+          navigatorKey: widget.appState.navigatorKey,
+          title: Config.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.dark(),
+          darkTheme: AppTheme.dark(),
+          themeMode: ThemeMode.dark,
+          builder: (context, child) {
+            return Consumer<CallService>(
+              builder: (context, calls, _) {
+                return PopScope(
+                  canPop: calls.phase == CallPhase.idle,
+                  onPopInvokedWithResult: (didPop, _) {
+                    if (didPop) return;
+                    if (calls.phase == CallPhase.incoming) {
+                      calls.reject();
+                    } else if (calls.phase != CallPhase.idle) {
+                      calls.hangup();
+                    }
+                  },
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(Icons.bolt_rounded, color: AppTheme.primaryInk, size: 34),
-                      ),
-                      const SizedBox(height: 18),
-                      Text('truepilot', style: AppTheme.display(size: 22)),
+                      child ?? const SizedBox.shrink(),
+                      if (calls.phase != CallPhase.idle) const CallScreen(),
                     ],
                   ),
-                ),
-              );
-            }
-            if (!app.isAuthenticated) return AuthScreen(app: app);
-            return const RootShell();
+                );
+              },
+            );
           },
+          home: Consumer<AppState>(
+            builder: (context, app, _) {
+              if (!app.bootstrapped) {
+                return Scaffold(
+                  backgroundColor: AppTheme.background,
+                  body: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 64,
+                          height: 64,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(Icons.bolt_rounded, color: AppTheme.primaryInk, size: 34),
+                        ),
+                        const SizedBox(height: 18),
+                        Text('truepilot', style: AppTheme.display(size: 22)),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              if (!app.isAuthenticated) return AuthScreen(app: app);
+              return const RootShell();
+            },
+          ),
         ),
       ),
     );

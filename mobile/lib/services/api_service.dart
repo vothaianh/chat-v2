@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:path/path.dart' as p;
 import '../models/models.dart';
 import 'config.dart';
 
@@ -129,6 +131,33 @@ class ApiService {
     throw ApiException(res);
   }
 
+  static Future<({String key, String url})> uploadImage(
+    String token,
+    String conversationId,
+    String filePath, {
+    String? contentType,
+  }) async {
+    final uri = _u('/uploads/image');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers['Authorization'] = 'Bearer $token';
+    req.fields['conversationId'] = conversationId;
+    final name = p.basename(filePath);
+    final mime = contentType ?? _guessImageMime(name);
+    req.files.add(await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: name.contains('.') ? name : 'photo.jpg',
+      contentType: MediaType.parse(mime),
+    ));
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      return (key: body['key'] as String, url: body['url'] as String);
+    }
+    throw ApiException(res);
+  }
+
   static Future<void> registerDevice(String token, String fcmToken, {String? platform}) async {
     await http.post(
       _u('/devices/register'),
@@ -143,6 +172,23 @@ class ApiService {
       headers: await _headers(token),
       body: jsonEncode({'token': fcmToken}),
     );
+  }
+
+  static String _guessImageMime(String name) {
+    switch (p.extension(name).toLowerCase()) {
+      case '.png':
+        return 'image/png';
+      case '.gif':
+        return 'image/gif';
+      case '.webp':
+        return 'image/webp';
+      case '.heic':
+        return 'image/heic';
+      case '.heif':
+        return 'image/heif';
+      default:
+        return 'image/jpeg';
+    }
   }
 }
 

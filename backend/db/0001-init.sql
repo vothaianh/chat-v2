@@ -50,9 +50,9 @@ CREATE TABLE IF NOT EXISTS message (
   id              VARCHAR(64) PRIMARY KEY,
   conversation_id UUID NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
   sender_id       UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-  type            VARCHAR(16) NOT NULL,          -- text | sticker | gif
+  type            VARCHAR(16) NOT NULL,          -- text | sticker | gif | image | call
   text            TEXT,
-  media           VARCHAR(512),
+  media           VARCHAR(2048),
   caption         TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

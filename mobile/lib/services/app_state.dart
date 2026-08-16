@@ -5,12 +5,14 @@ import 'socket_service.dart';
 import 'push_service.dart';
 import 'message_store.dart';
 import 'api_service.dart';
+import 'call_service.dart';
 
 class AppState extends ChangeNotifier {
   final AuthService auth = AuthService();
   final SocketService socket = SocketService();
   final PushService push = PushService.instance;
   final MessageStore store = MessageStore();
+  late final CallService calls = CallService(socket);
 
   /// App-wide navigator key so [PushService] can push a [ChatScreen] when a
   /// notification is tapped (no BuildContext available there).
@@ -71,6 +73,7 @@ class AppState extends ChangeNotifier {
       socket.onTyping.listen(_onTyping);
       socket.onRead.listen(_onRead);
       socket.onPresence.listen(_onPresence);
+      calls.bind();
     }
     socket.connect(auth.token!);
   }
@@ -193,6 +196,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await calls.hangup();
     socket.disconnect();
     await push.detach();
     push.onPersistMessage = null;
@@ -398,6 +402,44 @@ class AppState extends ChangeNotifier {
     socket.sendMessage(m);
   }
 
+  Future<bool> sendImage(
+    String conversationId,
+    String filePath, {
+    String? caption,
+    String? contentType,
+  }) async {
+    if (auth.token == null) return false;
+    try {
+      final uploaded = await ApiService.uploadImage(
+        auth.token!,
+        conversationId,
+        filePath,
+        contentType: contentType,
+      );
+      final m = ChatMessage.local(
+        id: '${DateTime.now().microsecondsSinceEpoch}',
+        conversationId: conversationId,
+        type: MessageType.image,
+        media: uploaded.url,
+        caption: caption,
+        senderId: currentUserId ?? '',
+        senderUsername: auth.username ?? '',
+        senderFullName: auth.username ?? '',
+      );
+      _addMessage(conversationId, m);
+      socket.sendMessage(m, mediaKey: uploaded.key);
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
   void sendGif(String conversationId, String gifUrl, {String? caption}) {
     final m = ChatMessage.local(
       id: '${DateTime.now().microsecondsSinceEpoch}',
@@ -474,6 +516,10 @@ class AppState extends ChangeNotifier {
         return m.media ?? '🙂';
       case MessageType.gif:
         return (m.caption?.isNotEmpty ?? false) ? m.caption! : 'GIF';
+      case MessageType.image:
+        return (m.caption?.isNotEmpty ?? false) ? m.caption! : '📷 Photo';
+      case MessageType.call:
+        return m.text ?? (m.media == 'video' ? 'Video call' : 'Voice call');
     }
   }
 
@@ -550,6 +596,36 @@ class AppState extends ChangeNotifier {
   }
 
   bool isOnline(String userId) => _online[userId] ?? false;
+
+  /// Start a 1:1 audio or video call in a private conversation.
+  Future<bool> startCall(Conversation c, {required bool video}) async {
+    if (c.members.length != 2) {
+      _error = 'calls are 1:1 only';
+      notifyListeners();
+      return false;
+    }
+    ConversationMember? peer;
+    for (final m in c.members) {
+      if (m.userId != currentUserId) {
+        peer = m;
+        break;
+      }
+    }
+    if (peer == null) {
+      _error = 'no one to call';
+      notifyListeners();
+      return false;
+    }
+    final name = (peer.fullName != null && peer.fullName!.isNotEmpty)
+        ? peer.fullName!
+        : (peer.username ?? 'them');
+    return calls.startCall(
+      conversationId: c.id,
+      peerUserId: peer.userId,
+      peerName: name,
+      video: video,
+    );
+  }
 
   // ---- helpers for display ----
   String conversationTitle(Conversation c) {

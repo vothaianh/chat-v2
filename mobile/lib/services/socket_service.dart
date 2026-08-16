@@ -18,6 +18,7 @@ class SocketService {
   final _read = StreamController<Map<String, dynamic>>.broadcast();
   final _presence = StreamController<Map<String, dynamic>>.broadcast();
   final _mention = StreamController<Map<String, dynamic>>.broadcast();
+  final _callEvents = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionState = StreamController<bool>.broadcast();
 
   Stream<ChatMessage> get onMessage => _messages.stream;
@@ -26,6 +27,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get onRead => _read.stream;
   Stream<Map<String, dynamic>> get onPresence => _presence.stream;
   Stream<Map<String, dynamic>> get onMention => _mention.stream;
+  Stream<Map<String, dynamic>> get onCallEvent => _callEvents.stream;
   Stream<bool> get onConnectionState => _connectionState.stream;
 
   bool get isConnected => _connected;
@@ -89,16 +91,33 @@ class SocketService {
     _socket!.on('mention:new', (data) {
       _mention.add(data as Json);
     });
+    const callEvents = [
+      'call:incoming',
+      'call:ringing',
+      'call:accepted',
+      'call:busy',
+      'call:ended',
+      'call:offer',
+      'call:answer',
+      'call:ice',
+    ];
+    for (final ev in callEvents) {
+      _socket!.on(ev, (data) {
+        if (data is Map) {
+          _callEvents.add({'event': ev, ...Map<String, dynamic>.from(data)});
+        }
+      });
+    }
 
     _socket!.connect();
   }
 
-  void sendMessage(ChatMessage m) {
+  void sendMessage(ChatMessage m, {String? mediaKey}) {
     _socket?.emit('message:send', {
       'conversationId': m.conversationId,
       'type': m.type.name,
       'text': m.text,
-      'media': m.media,
+      'media': mediaKey ?? m.media,
       'caption': m.caption,
       'clientId': m.id,
     });
@@ -116,6 +135,10 @@ class SocketService {
     _socket?.emit('conversation:join', {'conversationId': conversationId});
   }
 
+  void emitCall(String event, Map<String, dynamic> payload) {
+    _socket?.emit(event, payload);
+  }
+
   void disconnect() {
     _socket?.dispose();
     _socket = null;
@@ -130,6 +153,7 @@ class SocketService {
     _read.close();
     _presence.close();
     _mention.close();
+    _callEvents.close();
     _connectionState.close();
   }
 }

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Message, MessageType } from './message.entity';
 import { Conversation } from './conversation.entity';
 import { UsersService } from '../users/users.service';
+import { StorageService } from '../uploads/storage.service';
 
 export type PersistMessageInput = {
   id: string;
@@ -43,6 +44,7 @@ export class MessagesService {
     @InjectRepository(Conversation)
     private readonly conversations: Repository<Conversation>,
     private readonly users: UsersService,
+    private readonly storage: StorageService,
   ) {}
 
   async persist(input: PersistMessageInput): Promise<void> {
@@ -108,6 +110,10 @@ export class MessagesService {
     return out;
   }
 
+  resolveMedia(media: string | null | undefined) {
+    return this.storage.resolveMedia(media ?? null);
+  }
+
   async unreadCounts(userId: string, conversationIds: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     if (!conversationIds.length) return out;
@@ -139,20 +145,22 @@ export class MessagesService {
     const senderIds = [...new Set(rows.map((r) => r.senderId))];
     const senders = await this.users.listByIds(senderIds);
     const byId = new Map(senders.map((s) => [s.id, s]));
-    return rows.map((m) => {
-      const sender = byId.get(m.senderId);
-      return {
-        id: m.id,
-        conversationId: m.conversationId,
-        type: m.type,
-        text: m.text,
-        media: m.media,
-        caption: m.caption,
-        senderId: m.senderId,
-        sender,
-        createdAt: m.createdAt.getTime(),
-      };
-    });
+    return Promise.all(
+      rows.map(async (m) => {
+        const sender = byId.get(m.senderId);
+        return {
+          id: m.id,
+          conversationId: m.conversationId,
+          type: m.type,
+          text: m.text,
+          media: await this.storage.resolveMedia(m.media),
+          caption: m.caption,
+          senderId: m.senderId,
+          sender,
+          createdAt: m.createdAt.getTime(),
+        };
+      }),
+    );
   }
 
   private parseBefore(before?: string): Date | undefined {

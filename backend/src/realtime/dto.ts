@@ -8,9 +8,9 @@ export class SendMessageDto {
   @IsUUID()
   conversationId: string;
 
-  /** text | sticker | gif */
-  @IsIn(['text', 'sticker', 'gif'])
-  type: 'text' | 'sticker' | 'gif';
+  /** text | sticker | gif | image */
+  @IsIn(['text', 'sticker', 'gif', 'image'])
+  type: 'text' | 'sticker' | 'gif' | 'image';
 
   @IsOptional()
   @IsString()
@@ -20,7 +20,7 @@ export class SendMessageDto {
   // for sticker: a sticker asset id/ref; for gif: a GIF url
   @IsOptional()
   @IsString()
-  @MaxLength(512)
+  @MaxLength(2048)
   media?: string;
 
   @IsOptional()

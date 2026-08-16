@@ -23,4 +23,15 @@ export default () => ({
     credentialsBase64: process.env.FIREBASE_CREDENTIALS_BASE64 ?? '',
     projectId: process.env.FIREBASE_PROJECT_ID ?? '',
   },
+  s3: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    region: process.env.AWS_REGION ?? 'ap-southeast-1',
+    bucket: process.env.AWS_BUCKET ?? '',
+  },
+  turn: {
+    url: process.env.TURN_URL ?? '',
+    username: process.env.TURN_USERNAME ?? '',
+    credential: process.env.TURN_CREDENTIAL ?? '',
+  },
 });

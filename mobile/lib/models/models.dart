@@ -129,7 +129,22 @@ class Conversation {
   }
 }
 
-enum MessageType { text, sticker, gif }
+enum MessageType { text, sticker, gif, image, call }
+
+MessageType parseMessageType(String? t) {
+  switch (t) {
+    case 'sticker':
+      return MessageType.sticker;
+    case 'gif':
+      return MessageType.gif;
+    case 'image':
+      return MessageType.image;
+    case 'call':
+      return MessageType.call;
+    default:
+      return MessageType.text;
+  }
+}
 
 class ChatMessage {
   final String id;
@@ -172,11 +187,7 @@ class ChatMessage {
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
     final t = (j['type'] as String?) ?? 'text';
-    final type = t == 'sticker'
-        ? MessageType.sticker
-        : t == 'gif'
-            ? MessageType.gif
-            : MessageType.text;
+    final type = parseMessageType(t);
     final sender = j['sender'] as Map<String, dynamic>?;
     return ChatMessage(
       id: j['id'] as String,
@@ -227,11 +238,7 @@ class ChatMessage {
     return ChatMessage(
       id: m['id'] as String,
       conversationId: m['conversationId'] as String,
-      type: t == 'sticker'
-          ? MessageType.sticker
-          : t == 'gif'
-              ? MessageType.gif
-              : MessageType.text,
+      type: parseMessageType(t),
       text: m['text'] as String?,
       media: m['media'] as String?,
       caption: m['caption'] as String?,
@@ -251,11 +258,7 @@ class ChatMessage {
   factory ChatMessage.fromFcmData(Map<String, dynamic> d) {
     String? nonEmpty(String? s) => (s == null || s.isEmpty) ? null : s;
     final t = (d['type'] as String?) ?? 'text';
-    final type = t == 'sticker'
-        ? MessageType.sticker
-        : t == 'gif'
-            ? MessageType.gif
-            : MessageType.text;
+    final type = parseMessageType(t);
     final ts = int.tryParse((d['ts'] as String?) ?? '') ??
         DateTime.now().millisecondsSinceEpoch;
     return ChatMessage(

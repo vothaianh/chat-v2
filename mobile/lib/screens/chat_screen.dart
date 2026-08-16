@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
@@ -21,6 +22,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   bool _isTyping = false;
+  bool _uploading = false;
   Timer? _typingTimer;
   late final AppState _app;
   int _lastMessageCount = 0;
@@ -68,6 +70,115 @@ class _ChatScreenState extends State<ChatScreen> {
     context.read<AppState>().sendText(widget.conversation.id, text);
     _inputCtrl.clear();
     _scrollToLatest();
+  }
+
+  Widget _headerCallBtn({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: AppTheme.primary,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: Icon(icon, color: AppTheme.primaryInk, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startCall({required bool video}) async {
+    final app = context.read<AppState>();
+    final ok = await app.startCall(widget.conversation, video: video);
+    if (ok || !mounted) return;
+    final err = app.calls.lastError ?? app.error ?? 'couldn’t start call';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+  }
+
+  void _openAttach() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.textFaint,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _attachTile(Icons.photo_camera_rounded, 'camera', () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera);
+              }),
+              _attachTile(Icons.photo_library_rounded, 'photo library', () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery);
+              }),
+              _attachTile(Icons.emoji_emotions_outlined, 'stickers & gifs', () {
+                Navigator.pop(ctx);
+                _openMediaPicker();
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _attachTile(IconData icon, String label, VoidCallback onTap) {
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: AppTheme.primary.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: AppTheme.primary),
+      ),
+      title: Text(label, style: AppTheme.body(size: 15.5, weight: FontWeight.w700)),
+      onTap: onTap,
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 2048,
+      requestFullMetadata: false,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _uploading = true);
+    final ok = await context.read<AppState>().sendImage(
+          widget.conversation.id,
+          picked.path,
+          contentType: picked.mimeType,
+        );
+    if (!mounted) return;
+    setState(() => _uploading = false);
+    if (ok) {
+      _scrollToLatest();
+    } else {
+      final err = context.read<AppState>().error ?? 'couldn’t send photo';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    }
   }
 
   void _openMediaPicker() {
@@ -129,6 +240,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final title = app.conversationTitle(widget.conversation);
     final isGroup = widget.conversation.type == ConversationType.group;
+    final canCall = widget.conversation.members.length == 2 || !isGroup;
 
     return PulseBackdrop(
       child: Scaffold(
@@ -160,6 +272,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
+          actions: [
+            if (canCall) ...[
+              _headerCallBtn(
+                icon: Icons.call_rounded,
+                tooltip: 'voice call',
+                onTap: () => _startCall(video: false),
+              ),
+              const SizedBox(width: 4),
+              _headerCallBtn(
+                icon: Icons.videocam_rounded,
+                tooltip: 'video call',
+                onTap: () => _startCall(video: true),
+              ),
+              const SizedBox(width: 10),
+            ],
+          ],
         ),
         body: Column(
           children: [
@@ -184,7 +312,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         final m = messages[index];
                         final isMine = m.senderId == app.currentUserId;
                         final prev = index > 0 ? messages[index - 1] : null;
-                        final showSender = !isMine && (prev == null || prev.senderId != m.senderId);
+                        final isCall = m.type == MessageType.call;
+                        final showSender = !isCall && !isMine && (prev == null || prev.senderId != m.senderId);
                         final showDate = prev == null || !_sameDay(prev.createdAt, m.createdAt);
                         return Column(
                           children: [
@@ -196,6 +325,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               senderLabel: (m.senderFullName != null && m.senderFullName!.isNotEmpty)
                                   ? m.senderFullName
                                   : (m.senderUsername != null ? '@${m.senderUsername}' : null),
+                              onCallTap: isCall ? () => _startCall(video: m.media == 'video') : null,
                             ),
                           ],
                         );
@@ -283,7 +413,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             GestureDetector(
-              onTap: _openMediaPicker,
+              onTap: _uploading ? null : _openAttach,
               child: Container(
                 width: 46,
                 height: 46,
@@ -292,7 +422,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.divider),
                 ),
-                child: const Icon(Icons.add_rounded, color: AppTheme.primary),
+                child: _uploading
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_rounded, color: AppTheme.primary),
               ),
             ),
             const SizedBox(width: 8),
