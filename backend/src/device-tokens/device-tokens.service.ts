@@ -48,11 +48,16 @@ export class DeviceTokensService {
     return rows.map((r) => r.token).filter(Boolean);
   }
 
-  async getTokensForUsers(userIds: string[]): Promise<string[]> {
-    const rows = await this.repo
+  async getTokensForUsers(userIds: string[], opts?: { platform?: string; excludePlatform?: string }): Promise<string[]> {
+    if (!userIds.length) return [];
+    const qb = this.repo
       .createQueryBuilder('t')
-      .where('t.userId IN (:...ids)', { ids: userIds })
-      .getMany();
+      .where('t.userId IN (:...ids)', { ids: userIds });
+    if (opts?.platform) qb.andWhere('t.platform = :platform', { platform: opts.platform });
+    if (opts?.excludePlatform) {
+      qb.andWhere('(t.platform IS NULL OR t.platform != :exclude)', { exclude: opts.excludePlatform });
+    }
+    const rows = await qb.getMany();
     return rows.map((r) => r.token).filter(Boolean);
   }
 }

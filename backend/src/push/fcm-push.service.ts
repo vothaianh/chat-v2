@@ -65,8 +65,27 @@ export class FcmPushService implements PushService, OnModuleInit {
         tokens: valid,
         notification: { title: payload.title, body: payload.body },
         data: payload.data ?? {},
-        android: { priority: 'high' },
-        apns: { payload: { aps: { sound: 'default', badge: 1 } } },
+        android: {
+          priority: 'high',
+          notification: payload.call
+            ? { channelId: 'incoming_calls', priority: 'max' as const, defaultSound: true }
+            : undefined,
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+          payload: {
+            aps: {
+              alert: { title: payload.title, body: payload.body },
+              sound: 'default',
+              badge: 1,
+              'content-available': 1,
+              ...(payload.call ? { 'interruption-level': 'time-sensitive' } : {}),
+            },
+          },
+        },
       });
       if (res.failureCount > 0) {
         this.logger.warn(`FCM: ${res.failureCount}/${valid.length} deliveries failed.`);

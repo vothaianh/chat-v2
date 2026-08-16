@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import 'api_service.dart';
 import 'auth_service.dart';
 import 'message_store.dart';
+import 'native_call_kit.dart';
 
 /// Manages FCM: initialization, token acquisition/refresh, permission requests,
 /// registering the device token with the backend, and showing local notifications
@@ -38,6 +42,9 @@ class PushService {
   /// conversation and pushes the [ChatScreen].
   void Function(String conversationId)? onTapConversation;
 
+  /// Incoming call from FCM / notification tap. [AppState] feeds [CallService].
+  void Function(Map<String, dynamic> data)? onIncomingCall;
+
   /// Top-level handler for messages that arrive while the app is in the background
   /// or terminated. Must be a top-level function (not a closure or class method).
   ///
@@ -49,7 +56,26 @@ class PushService {
   @pragma('vm:entry-point')
   static Future<void> onBackgroundMessage(RemoteMessage message) async {
     debugPrint('FCM background: ${message.messageId} ${message.notification?.title}');
+    if (message.data['type'] == 'call') {
+      await _persistIncomingCall(message.data);
+      return;
+    }
     await _persistFcmMessage(message);
+  }
+
+  static Future<void> _persistIncomingCall(Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'volt_pending_incoming_call',
+        jsonEncode({
+          ...data,
+          '_savedAt': DateTime.now().millisecondsSinceEpoch,
+        }),
+      );
+    } catch (e) {
+      debugPrint('FCM persist incoming call failed: $e');
+    }
   }
 
   /// Reconstructs the [ChatMessage] from the FCM data payload and writes it to
@@ -83,17 +109,19 @@ class PushService {
     await Firebase.initializeApp();
 
     // Local notifications for foreground FCM messages.
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidInit = AndroidInitializationSettings('@drawable/ic_stat_volt');
     const iosInit = DarwinInitializationSettings();
     await _local.initialize(
       settings: const InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: (resp) {
-        // Foreground local-notification tap → open the conversation.
-        final conversationId = resp.payload;
-        debugPrint('Local notification tapped: payload=$conversationId, callback set=${onTapConversation != null}');
-        if (conversationId != null && conversationId.isNotEmpty) {
-          onTapConversation?.call(conversationId);
+        final payload = resp.payload;
+        debugPrint('Local notification tapped: payload=$payload');
+        if (payload == null || payload.isEmpty) return;
+        if (payload.startsWith('call:')) {
+          _dispatchIncomingCall(payload.substring(5));
+          return;
         }
+        onTapConversation?.call(payload);
       },
     );
 
@@ -106,7 +134,11 @@ class PushService {
       final payload = launch?.notificationResponse?.payload;
       debugPrint('Local notification cold-start: payload=$payload');
       if (payload != null && payload.isNotEmpty) {
-        _pendingTapConversationId = payload;
+        if (payload.startsWith('call:')) {
+          _pendingIncomingRaw = payload.substring(5);
+        } else {
+          _pendingTapConversationId = payload;
+        }
       }
     }
 
@@ -118,6 +150,15 @@ class PushService {
           'Chat messages',
           description: 'Incoming chat messages',
           importance: Importance.high,
+        ));
+    await _local
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(const AndroidNotificationChannel(
+          'incoming_calls',
+          'Incoming calls',
+          description: 'Incoming voice and video calls',
+          importance: Importance.max,
+          playSound: true,
         ));
 
     FirebaseMessaging.onBackgroundMessage(onBackgroundMessage);
@@ -145,8 +186,12 @@ class PushService {
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     debugPrint('FCM getInitialMessage: ${initial == null ? "NULL (no cold-start tap / sim did not deliver)" : "conversationId=${initial.data['conversationId']}"}');
     if (initial != null) {
-      _pendingTapMessage = initial;
-      debugPrint('FCM cold-start tap pending: conversationId=${initial.data['conversationId']}');
+      if (initial.data['type'] == 'call') {
+        _pendingIncomingData = Map<String, dynamic>.from(initial.data);
+      } else {
+        _pendingTapMessage = initial;
+      }
+      debugPrint('FCM cold-start tap pending: conversationId=${initial.data['conversationId']} type=${initial.data['type']}');
     }
 
     // Token refresh → re-register with the backend if we have a JWT.
@@ -161,6 +206,30 @@ class PushService {
   /// the payload (the conversation id), not a full [RemoteMessage].
   String? _pendingTapConversationId;
 
+  /// Incoming-call payload waiting for [onIncomingCall] to be wired.
+  Map<String, dynamic>? _pendingIncomingData;
+  String? _pendingIncomingRaw;
+
+  void _dispatchIncomingCall(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        _emitIncoming(Map<String, dynamic>.from(decoded));
+        return;
+      }
+    } catch (_) {}
+    _emitIncoming({'callId': raw});
+  }
+
+  void _emitIncoming(Map<String, dynamic> data) {
+    final cb = onIncomingCall;
+    if (cb != null) {
+      cb(data);
+      return;
+    }
+    _pendingIncomingData = data;
+  }
+
   /// Persist the message from its FCM data payload, then open the conversation.
   /// The banner only shows an alert; the message body lives in `data`, so we
   /// reconstruct + persist it here (in both warm and cold-start tap paths) —
@@ -168,6 +237,10 @@ class PushService {
   /// this the tapped message would never reach the local store and the chat
   /// would open empty.
   Future<void> _handleTapMessage(RemoteMessage message) async {
+    if (message.data['type'] == 'call') {
+      _emitIncoming(Map<String, dynamic>.from(message.data));
+      return;
+    }
     final conversationId = message.data['conversationId'] as String?;
     if (conversationId == null || conversationId.isEmpty) return;
     debugPrint('FCM tap → conversationId=$conversationId, callback set=${onTapConversation != null}');
@@ -208,6 +281,14 @@ class PushService {
         sound: true,
       );
       debugPrint('FCM permission: ${settings.authorizationStatus}');
+      try {
+        await FlutterCallkitIncoming.requestNotificationPermission({
+          'title': 'Notifications',
+          'rationaleMessagePermission': 'Volt needs notifications so incoming calls can ring.',
+          'postNotificationMessageRequired': 'Allow notifications so you don’t miss calls.',
+        });
+        await FlutterCallkitIncoming.requestFullIntentPermission();
+      } catch (_) {}
 
       // On iOS, getToken() requires an APNS token which the Simulator never
       // provides — guard so it doesn't throw and abort startup.
@@ -216,6 +297,7 @@ class PushService {
         _token = token;
         await _registerWithBackend(token);
       }
+      await _registerVoipToken();
 
       // Now that the user is authenticated and the UI has wired [onTapConversation],
       // replay a cold-start notification tap captured in [init] — persist the
@@ -224,7 +306,15 @@ class PushService {
       final pendingConversationId = _pendingTapConversationId;
       _pendingTapMessage = null;
       _pendingTapConversationId = null;
-      if (pending != null) {
+      final pendingIncoming = _pendingIncomingData;
+      final pendingIncomingRaw = _pendingIncomingRaw;
+      _pendingIncomingData = null;
+      _pendingIncomingRaw = null;
+      if (pendingIncoming != null) {
+        onIncomingCall?.call(pendingIncoming);
+      } else if (pendingIncomingRaw != null) {
+        _dispatchIncomingCall(pendingIncomingRaw);
+      } else if (pending != null) {
         await _handleTapMessage(pending);
       } else if (pendingConversationId != null) {
         // Local-notification cold start: no data payload to persist, just open
@@ -251,6 +341,18 @@ class PushService {
   Future<void> _onTokenRefresh(String token) async {
     _token = token;
     if (_authToken != null) await _registerWithBackend(token);
+  }
+
+  Future<void> _registerVoipToken() async {
+    if (_authToken == null) return;
+    try {
+      final voip = await NativeCallKit.voipToken();
+      if (voip == null || voip.isEmpty) return;
+      await ApiService.registerDevice(_authToken!, voip, platform: 'ios-voip');
+      debugPrint('VoIP token registered');
+    } catch (e) {
+      debugPrint('VoIP token register skipped: $e');
+    }
   }
 
   Future<void> _registerWithBackend(String token) async {
@@ -288,6 +390,8 @@ class PushService {
           android: AndroidNotificationDetails(
             'chat_messages',
             'Chat messages',
+            icon: '@drawable/ic_stat_volt',
+            color: Color(0xFFC6FF4A),
             importance: Importance.high,
             priority: Priority.high,
           ),
@@ -307,10 +411,14 @@ class PushService {
   }
 
   void _handleForeground(RemoteMessage message) {
+    final data = message.data;
+    if (data['type'] == 'call') {
+      _emitIncoming(Map<String, dynamic>.from(data));
+      return;
+    }
     final n = message.notification;
     final title = n?.title ?? 'New message';
     final body = n?.body ?? '';
-    final data = message.data;
     final conversationId = data['conversationId'] as String?;
     try {
       _local.show(
@@ -321,6 +429,8 @@ class PushService {
           android: AndroidNotificationDetails(
             'chat_messages',
             'Chat messages',
+            icon: '@drawable/ic_stat_volt',
+            color: Color(0xFFC6FF4A),
             importance: Importance.high,
             priority: Priority.high,
           ),

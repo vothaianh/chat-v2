@@ -37,11 +37,11 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
-            resValue("string", "app_name", "TruePilot Chat Dev")
+            resValue("string", "app_name", "Volt Dev")
         }
         create("prod") {
             dimension = "env"
-            resValue("string", "app_name", "TruePilot Chat")
+            resValue("string", "app_name", "Volt")
         }
     }
 

@@ -8,6 +8,8 @@ export interface PushPayload {
   body: string;
   /** Arbitrary data for the client (e.g. conversationId, message type, sender). */
   data?: Record<string, string>;
+  /** High-priority incoming-call alert (time-sensitive on iOS). */
+  call?: boolean;
 }
 
 export interface PushService {

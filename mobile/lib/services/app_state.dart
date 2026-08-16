@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/models.dart';
 import 'auth_service.dart';
@@ -44,22 +45,56 @@ class AppState extends ChangeNotifier {
 
   Future<void> bootstrap() async {
     try {
-      await push.init();
+      // SharedPreferences only — keep the first frame fast.
       await auth.load();
-      if (auth.isAuthenticated) {
-        await _openStoreAndHydrate();
-        _connectSocket();
-        _wirePushPersist();
-        await push.attach(auth.token!);
-        await loadConversations();
-      }
     } catch (e) {
-      // Never let startup hang on the loading spinner — surface but continue.
       _error = e.toString();
     } finally {
       _bootstrapped = true;
       notifyListeners();
     }
+    await _warmSession();
+  }
+
+  /// Socket, local cache, push, and conversation list — after the UI is up.
+  Future<void> _warmSession() async {
+    if (!auth.isAuthenticated) {
+      try {
+        await push.init();
+      } catch (_) {}
+      return;
+    }
+    try {
+      await store.open(auth.userId!);
+    } catch (e) {
+      _error = 'local history: $e';
+    }
+    _connectSocket();
+    _wirePushPersist();
+    unawaited(calls.restorePendingIncoming());
+    unawaited(_hydrateStore());
+    unawaited(_initPushAndSync());
+  }
+
+  Future<void> _hydrateStore() async {
+    try {
+      for (final entry in (await _loadAllHistory()).entries) {
+        _messages[entry.key] = entry.value;
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = 'local history: $e';
+    }
+  }
+
+  Future<void> _initPushAndSync() async {
+    try {
+      await push.init();
+      if (auth.token != null) await push.attach(auth.token!);
+    } catch (e) {
+      _error = e.toString();
+    }
+    await loadConversations();
   }
 
   bool _socketWired = false;
@@ -74,6 +109,7 @@ class AppState extends ChangeNotifier {
       socket.onRead.listen(_onRead);
       socket.onPresence.listen(_onPresence);
       calls.bind();
+      push.onIncomingCall = (data) => calls.presentIncoming(data);
     }
     socket.connect(auth.token!);
   }
@@ -229,7 +265,6 @@ class AppState extends ChangeNotifier {
         }
       }
       notifyListeners();
-      await Future.wait(_conversations.map((c) => loadMessages(c.id)));
     } on ApiException catch (e) {
       _error = e.message;
       notifyListeners();

@@ -90,6 +90,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     // the app was backgrounded into the live in-memory list.
     if (state == AppLifecycleState.resumed) {
       widget.appState.refreshFromStore();
+      widget.appState.calls.restorePendingIncoming();
     }
   }
 
@@ -123,7 +124,8 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
                     fit: StackFit.expand,
                     children: [
                       child ?? const SizedBox.shrink(),
-                      if (calls.phase != CallPhase.idle) const CallScreen(),
+                      if (calls.phase != CallPhase.idle)
+                      const Positioned.fill(child: CallScreen()),
                     ],
                   ),
                 );
@@ -149,7 +151,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
                           child: const Icon(Icons.bolt_rounded, color: AppTheme.primaryInk, size: 34),
                         ),
                         const SizedBox(height: 18),
-                        Text('truepilot', style: AppTheme.display(size: 22)),
+                        Text('volt', style: AppTheme.display(size: 22)),
                       ],
                     ),
                   ),

@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+import 'native_call_kit.dart';
 import 'socket_service.dart';
 
 enum CallPhase { idle, outgoing, incoming, connecting, active }
@@ -55,6 +59,8 @@ class CallService extends ChangeNotifier {
 
   VoidCallback? onShowCallUi;
 
+  static const _pendingKey = 'volt_pending_incoming_call';
+
   bool get inCall => phase != CallPhase.idle;
   bool get hasLocalMedia => _local != null;
   bool get hasRemoteVideo => _remote != null && session?.video == true;
@@ -62,6 +68,7 @@ class CallService extends ChangeNotifier {
   void bind() {
     _sub?.cancel();
     _sub = _socket.onCallEvent.listen(_onEvent);
+    NativeCallKit.bind(this);
   }
 
   void clearError() {
@@ -94,7 +101,7 @@ class CallService extends ChangeNotifier {
       return false;
     }
     if (!await _ensurePerms(video)) return false;
-    final callId = '${DateTime.now().microsecondsSinceEpoch}';
+    final callId = const Uuid().v4();
     session = CallSession(
       callId: callId,
       conversationId: conversationId,
@@ -107,6 +114,13 @@ class CallService extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     onShowCallUi?.call();
+    unawaited(NativeCallKit.startOutgoing(
+      id: callId,
+      name: peerName,
+      handle: peerName,
+      video: video,
+      extra: {'conversationId': conversationId, 'media': video ? 'video' : 'audio'},
+    ));
     _socket.emitCall('call:invite', {
       'conversationId': conversationId,
       'media': video ? 'video' : 'audio',
@@ -124,6 +138,7 @@ class CallService extends ChangeNotifier {
     }
     phase = CallPhase.connecting;
     notifyListeners();
+    await _waitForSocket();
     _socket.emitCall('call:accept', {'callId': s.callId});
     try {
       await _ensurePeer(s.video);
@@ -186,24 +201,7 @@ class CallService extends ChangeNotifier {
     final callId = raw['callId'] as String?;
     switch (event) {
       case 'call:incoming':
-        if (phase != CallPhase.idle) {
-          if (callId != null) _socket.emitCall('call:reject', {'callId': callId});
-          return;
-        }
-        _readIce(raw['iceServers']);
-        session = CallSession(
-          callId: callId ?? '',
-          conversationId: raw['conversationId'] as String? ?? '',
-          peerUserId: raw['fromUserId'] as String? ?? '',
-          peerName: (raw['fromFullName'] as String?)?.isNotEmpty == true
-              ? raw['fromFullName'] as String
-              : (raw['fromUsername'] as String? ?? 'someone'),
-          video: raw['media'] == 'video',
-          isCaller: false,
-        );
-        phase = CallPhase.incoming;
-        notifyListeners();
-        onShowCallUi?.call();
+        await presentIncoming(raw);
         break;
       case 'call:ringing':
         _readIce(raw['iceServers']);
@@ -278,6 +276,104 @@ class CallService extends ChangeNotifier {
     if (out.isNotEmpty) _iceServers = out;
   }
 
+  /// Incoming invite from the socket or an FCM / notification tap.
+  Future<void> presentIncoming(Map<String, dynamic> raw) async {
+    final callId = (raw['callId'] as String?) ?? '';
+    if (callId.isEmpty) return;
+    if (phase != CallPhase.idle) {
+      if (session?.callId == callId) return;
+      if (session != null && !session!.isCaller) return;
+      _socket.emitCall('call:reject', {'callId': callId});
+      return;
+    }
+    _readIce(raw['iceServers']);
+    if (raw['iceServers'] is String) {
+      try {
+        _readIce(jsonDecode(raw['iceServers'] as String));
+      } catch (_) {}
+    }
+    final fromId = (raw['fromUserId'] as String?) ?? (raw['senderId'] as String?) ?? '';
+    final full = raw['fromFullName'] as String?;
+    final user = raw['fromUsername'] as String?;
+    session = CallSession(
+      callId: callId,
+      conversationId: raw['conversationId'] as String? ?? '',
+      peerUserId: fromId,
+      peerName: (full != null && full.isNotEmpty) ? full : (user ?? 'someone'),
+      video: raw['media'] == 'video',
+      isCaller: false,
+    );
+    phase = CallPhase.incoming;
+    lastError = null;
+    notifyListeners();
+    onShowCallUi?.call();
+    await _savePending(raw);
+    unawaited(NativeCallKit.showIncoming(
+      id: callId,
+      name: session!.peerName,
+      handle: session!.peerName,
+      video: session!.video,
+      extra: {
+        'conversationId': session!.conversationId,
+        'media': session!.video ? 'video' : 'audio',
+        'fromUserId': session!.peerUserId,
+        'fromUsername': raw['fromUsername'],
+        'fromFullName': raw['fromFullName'],
+      },
+    ));
+  }
+
+  Future<void> restorePendingIncoming() async {
+    if (phase != CallPhase.idle) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pendingKey);
+      if (raw == null || raw.isEmpty) return;
+      final map = jsonDecode(raw);
+      if (map is! Map) return;
+      final data = Map<String, dynamic>.from(map);
+      final savedAt = (data['_savedAt'] as num?)?.toInt() ?? 0;
+      if (savedAt > 0 && DateTime.now().millisecondsSinceEpoch - savedAt > 45000) {
+        await prefs.remove(_pendingKey);
+        return;
+      }
+      await presentIncoming(data);
+    } catch (_) {}
+  }
+
+  Future<void> _savePending(Map<String, dynamic> raw) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _pendingKey,
+        jsonEncode({
+          'callId': raw['callId'],
+          'conversationId': raw['conversationId'],
+          'media': raw['media'],
+          'fromUserId': raw['fromUserId'] ?? raw['senderId'],
+          'fromUsername': raw['fromUsername'],
+          'fromFullName': raw['fromFullName'],
+          'iceServers': raw['iceServers'] is String ? raw['iceServers'] : jsonEncode(raw['iceServers'] ?? []),
+          '_savedAt': DateTime.now().millisecondsSinceEpoch,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _clearPending() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_pendingKey);
+    } catch (_) {}
+  }
+
+  Future<void> _waitForSocket() async {
+    for (var i = 0; i < 25; i++) {
+      if (_socket.isConnected) return;
+      await Future.delayed(const Duration(milliseconds: 160));
+    }
+  }
+
   Future<bool> _ensurePerms(bool video) async {
     final mic = await Permission.microphone.request();
     if (!mic.isGranted) {
@@ -305,16 +401,7 @@ class CallService extends ChangeNotifier {
     final gen = _gen;
     await _ensureRenderers();
     if (gen != _gen) return;
-    final local = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video
-          ? {
-              'facingMode': 'user',
-              'width': {'ideal': 720},
-              'height': {'ideal': 1280},
-            }
-          : false,
-    });
+    final local = await _openMedia(video);
     if (gen != _gen) {
       await local.dispose();
       return;
@@ -327,6 +414,8 @@ class CallService extends ChangeNotifier {
     final pc = await createPeerConnection({
       'iceServers': _iceServers,
       'sdpSemantics': 'unified-plan',
+      'bundlePolicy': 'max-bundle',
+      'rtcpMuxPolicy': 'require',
     });
     if (gen != _gen) {
       await pc.close();
@@ -357,6 +446,12 @@ class CallService extends ChangeNotifier {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         phase = CallPhase.active;
         notifyListeners();
+        final id = session?.callId;
+        if (id != null) unawaited(NativeCallKit.connected(id));
+        final live = _pc;
+        if (live != null && session?.video == true) {
+          _tuneVideoSender(live);
+        }
       }
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         hangup();
@@ -365,7 +460,133 @@ class CallService extends ChangeNotifier {
     for (final track in local.getTracks()) {
       await pc.addTrack(track, local);
     }
+    if (video) {
+      await _preferBestCodecs(pc);
+      await _tuneVideoSender(pc);
+    }
     notifyListeners();
+  }
+
+  Future<MediaStream> _openMedia(bool video) async {
+    final audio = <String, dynamic>{
+      'echoCancellation': true,
+      'noiseSuppression': true,
+      'autoGainControl': true,
+      'sampleRate': 48000,
+      'channelCount': 1,
+    };
+    if (!video) {
+      return navigator.mediaDevices.getUserMedia({'audio': audio, 'video': false});
+    }
+    // iOS only honors facingMode when it is the string "user" — a
+    // {ideal: user} map is ignored and the rear camera opens instead.
+    MediaStream stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': audio,
+        'video': {
+          'facingMode': 'user',
+          'width': {'ideal': 1080},
+          'height': {'ideal': 1920},
+          'frameRate': {'ideal': 30},
+        },
+      });
+    } catch (_) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        'audio': audio,
+        'video': {'facingMode': 'user'},
+      });
+    }
+    await _ensureFrontCamera(stream);
+    await _pushVideoQuality(stream);
+    usingFrontCam = true;
+    return stream;
+  }
+
+  bool _looksFront(String? label) {
+    final l = (label ?? '').toLowerCase();
+    return l.contains('front') || l.contains('user') || l.contains('facetime') || l.contains('selfie');
+  }
+
+  bool _looksBack(String? label) {
+    final l = (label ?? '').toLowerCase();
+    return l.contains('back') || l.contains('rear') || l.contains('environment');
+  }
+
+  Future<void> _ensureFrontCamera(MediaStream stream) async {
+    final tracks = stream.getVideoTracks();
+    if (tracks.isEmpty) return;
+    if (_looksFront(tracks.first.label) || !_looksBack(tracks.first.label)) return;
+    try {
+      await Helper.switchCamera(tracks.first);
+    } catch (_) {}
+  }
+
+  Future<void> _pushVideoQuality(MediaStream stream) async {
+    for (final track in stream.getVideoTracks()) {
+      try {
+        await track.applyConstraints({
+          'width': 1080,
+          'height': 1920,
+          'frameRate': 30,
+        });
+      } catch (_) {
+        try {
+          await track.applyConstraints({
+            'width': 1920,
+            'height': 1080,
+            'frameRate': 30,
+          });
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _preferBestCodecs(RTCPeerConnection pc) async {
+    try {
+      final caps = await getRtpSenderCapabilities('video');
+      final codecs = [...?caps.codecs];
+      int rank(RTCRtpCodecCapability c) {
+        final m = c.mimeType.toLowerCase();
+        if (m.contains('h264')) return 0;
+        if (m.contains('vp9')) return 1;
+        if (m.contains('av1')) return 2;
+        if (m.contains('vp8')) return 3;
+        return 9;
+      }
+
+      codecs.sort((a, b) => rank(a).compareTo(rank(b)));
+      if (codecs.isEmpty) return;
+      for (final t in await pc.getTransceivers()) {
+        final kind = t.sender.track?.kind ?? t.receiver.track?.kind;
+        if (kind == 'video') {
+          await t.setCodecPreferences(codecs);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _tuneVideoSender(RTCPeerConnection pc) async {
+    try {
+      for (final sender in await pc.getSenders()) {
+        if (sender.track?.kind != 'video') continue;
+        final params = sender.parameters;
+        params.degradationPreference = RTCDegradationPreference.MAINTAIN_RESOLUTION;
+        if (params.encodings == null || params.encodings!.isEmpty) {
+          params.encodings = [RTCRtpEncoding()];
+        }
+        for (final enc in params.encodings!) {
+          enc.active = true;
+          enc.maxBitrate = 4500000;
+          enc.minBitrate = 1200000;
+          enc.maxFramerate = 30;
+          enc.scaleResolutionDownBy = 1.0;
+          enc.priority = RTCPriorityType.high;
+          enc.networkPriority = RTCPriorityType.high;
+        }
+        await sender.setParameters(params);
+      }
+    } catch (_) {}
   }
 
   Future<void> _makeOffer() async {
@@ -449,8 +670,13 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _teardown() async {
+    final endedId = session?.callId;
     _gen++;
     _preparing = null;
+    unawaited(_clearPending());
+    if (!NativeCallKit.acting && endedId != null) {
+      unawaited(NativeCallKit.end(endedId));
+    }
     _pendingIce.clear();
     _remoteDescSet = false;
     try {

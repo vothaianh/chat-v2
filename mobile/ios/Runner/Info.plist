@@ -7,7 +7,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>TruePilot Chat</string>
+	<string>Volt</string>
+	<key>CFBundleIconName</key>
+	<string>AppIconVolt</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -53,17 +55,18 @@
 	<array>
 		<string>remote-notification</string>
 		<string>audio</string>
+		<string>voip</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>TruePilot Chat uses the camera for video calls and to send photos in a conversation.</string>
+	<string>Volt uses the camera for video calls and to send photos in a conversation.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>TruePilot Chat uses the microphone for voice and video calls.</string>
+	<string>Volt uses the microphone for voice and video calls.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>TruePilot Chat uses the local network to connect audio and video calls.</string>
+	<string>Volt uses the local network to connect audio and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>TruePilot Chat needs photo access so you can send images in a conversation.</string>
+	<string>Volt needs photo access so you can send images in a conversation.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>TruePilot Chat can save images you receive to your library.</string>
+	<string>Volt can save images you receive to your library.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

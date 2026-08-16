@@ -23,13 +23,13 @@ class AppConfig {
   static const AppConfig dev = AppConfig(
     env: Environment.dev,
     baseUrl: _devUrl,
-    appName: 'TruePilot Chat Dev',
+    appName: 'Volt Dev',
   );
 
   static const AppConfig prod = AppConfig(
     env: Environment.prod,
     baseUrl: _prodUrl,
-    appName: 'TruePilot Chat',
+    appName: 'Volt',
   );
 
   /// The active config. Chosen by the `FLAVOR` dart-define; `BASE_URL` (if set)

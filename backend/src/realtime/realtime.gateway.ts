@@ -18,7 +18,9 @@ import { PresenceService } from './presence.service';
 import { CallsService, CallMedia } from './calls.service';
 import { extractMentions } from './mentions';
 import { PUSH_SERVICE, PushService } from '../push/push.service';
+import { ApnsVoipService } from '../push/apns-voip.service';
 import { DeviceTokensService } from '../device-tokens/device-tokens.service';
+import { randomUUID } from 'crypto';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { stripBearer, verifyAccessToken } from '../auth/jwt-secrets';
 
@@ -40,6 +42,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly presence: PresenceService,
     private readonly devices: DeviceTokensService,
     private readonly calls: CallsService,
+    private readonly voip: ApnsVoipService,
     @Inject(PUSH_SERVICE) private readonly push: PushService,
   ) {}
 
@@ -242,7 +245,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       client.emit('call:busy', { conversationId: body.conversationId });
       return { ok: false, reason: 'busy' };
     }
-    const callId = (body.callId && String(body.callId).slice(0, 64)) || `${userId}-${Date.now()}`;
+    const requested = body.callId ? String(body.callId).slice(0, 64) : '';
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const callId = uuidRe.test(requested) ? requested : randomUUID();
     const caller = await this.users.findById(userId);
     const call = this.calls.start({
       id: callId,
@@ -263,21 +269,37 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     };
     this.server.to(this.userRoom(calleeId)).emit('call:incoming', payload);
     client.emit('call:ringing', payload);
-    if (!this.presence.isOnline(calleeId)) {
-      const tokens = await this.devices.getTokensForUsers([calleeId]);
-      if (tokens.length) {
-        await this.push.send(tokens, {
-          title: caller ? `${caller.fullName ?? caller.username}` : 'Incoming call',
-          body: media === 'video' ? 'Video call' : 'Voice call',
-          data: {
-            type: 'call',
-            callId: call.id,
-            conversationId: call.conversationId,
-            media,
-            senderId: userId,
-          },
-        });
-      }
+    // Always push — a "online" socket can still be a locked / backgrounded phone.
+    const fromUsername = caller?.username ?? client.data.username ?? '';
+    const fromFullName = caller?.fullName ?? fromUsername;
+    const fcmTokens = await this.devices.getTokensForUsers([calleeId], { excludePlatform: 'ios-voip' });
+    if (fcmTokens.length) {
+      await this.push.send(fcmTokens, {
+        title: fromFullName || 'Incoming call',
+        body: media === 'video' ? 'Incoming video call' : 'Incoming voice call',
+        call: true,
+        data: {
+          type: 'call',
+          callId: call.id,
+          conversationId: call.conversationId,
+          media,
+          fromUserId: userId,
+          fromUsername,
+          fromFullName,
+          iceServers: JSON.stringify(this.calls.iceServers()),
+        },
+      });
+    }
+    const voipTokens = await this.devices.getTokensForUsers([calleeId], { platform: 'ios-voip' });
+    if (voipTokens.length) {
+      await this.voip.send(voipTokens, {
+        callId: call.id,
+        conversationId: call.conversationId,
+        media,
+        fromUserId: userId,
+        fromUsername,
+        fromFullName,
+      });
     }
     return { ok: true, callId: call.id };
   }

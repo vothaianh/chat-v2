@@ -1,7 +1,7 @@
 name: chat_app
 description: Instant messaging client (Flutter) for the NestJS backend.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.12.2
@@ -27,6 +27,8 @@ dependencies:
   http_parser: ^4.1.2
   flutter_webrtc: ^1.6.0
   permission_handler: ^13.0.1
+  flutter_callkit_incoming: ^3.1.5
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:

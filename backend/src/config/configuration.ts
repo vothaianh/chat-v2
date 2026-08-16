@@ -34,4 +34,10 @@ export default () => ({
     username: process.env.TURN_USERNAME ?? '',
     credential: process.env.TURN_CREDENTIAL ?? '',
   },
+  apns: {
+    keyPath: process.env.APNS_KEY_PATH ?? '',
+    keyId: process.env.APNS_KEY_ID ?? '',
+    teamId: process.env.APNS_TEAM_ID ?? '',
+    bundleId: process.env.APNS_BUNDLE_ID ?? 'com.truepilot.chatv2',
+  },
 });
