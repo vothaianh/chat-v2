@@ -232,20 +232,27 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await calls.hangup();
-    socket.disconnect();
-    await push.detach();
-    push.onPersistMessage = null;
-    push.onTapConversation = null;
-    // Keep the local history on disk so signing back in restores past chats;
-    // just close the handle and clear the in-memory copy.
-    await store.close();
+    // Drop the session immediately so the login screen isn't blocked if
+    // hangup / token unregister hangs on a stale prod token.
     await auth.logout();
     _conversations = [];
     _messages.clear();
     _online.clear();
     _typingUsers.clear();
     notifyListeners();
+    try {
+      await calls.hangup().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    socket.disconnect();
+    push.onPersistMessage = null;
+    push.onTapConversation = null;
+    push.onIncomingCall = null;
+    try {
+      await push.detach().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    try {
+      await store.close();
+    } catch (_) {}
   }
 
   // ---- conversations ----

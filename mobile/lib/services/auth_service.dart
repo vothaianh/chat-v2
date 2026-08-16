@@ -1,14 +1,17 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'config.dart';
 import '../models/models.dart';
 
 class AuthService {
-  static const _kToken = 'auth_token';
+  /// Flavor-scoped so a prod install and a dev install don't share JWTs.
+  static String get _suffix => Config.isProd ? 'prod' : 'dev';
+  static String get _kToken => 'auth_token_$_suffix';
   /// Public so the FCM background isolate can read the logged-in userId and
   /// open the right per-account [MessageStore] without the main isolate.
-  static const kUserIdKey = 'auth_user_id';
-  static const _kUserId = kUserIdKey;
-  static const _kUsername = 'auth_username';
+  static String get kUserIdKey => 'auth_user_id_$_suffix';
+  static String get _kUserId => kUserIdKey;
+  static String get _kUsername => 'auth_username_$_suffix';
 
   String? _token;
   String? _userId;

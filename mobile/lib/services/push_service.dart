@@ -297,7 +297,7 @@ class PushService {
         _token = token;
         await _registerWithBackend(token);
       }
-      await _registerVoipToken();
+      await registerVoipToken();
 
       // Now that the user is authenticated and the UI has wired [onTapConversation],
       // replay a cold-start notification tap captured in [init] — persist the
@@ -343,13 +343,31 @@ class PushService {
     if (_authToken != null) await _registerWithBackend(token);
   }
 
-  Future<void> _registerVoipToken() async {
+  Future<void> registerVoipToken() async {
     if (_authToken == null) return;
+    NativeCallKit.onVoipToken = (token) {
+      final auth = _authToken;
+      if (auth == null || token.isEmpty) return;
+      ApiService.registerDevice(auth, token, platform: 'ios-voip').then((_) {
+        debugPrint('VoIP token registered');
+      }).catchError((e) {
+        debugPrint('VoIP token register failed: $e');
+      });
+    };
     try {
-      final voip = await NativeCallKit.voipToken();
-      if (voip == null || voip.isEmpty) return;
-      await ApiService.registerDevice(_authToken!, voip, platform: 'ios-voip');
-      debugPrint('VoIP token registered');
+      String? voip;
+      for (var i = 0; i < 16; i++) {
+        voip = await NativeCallKit.voipToken();
+        voip ??= (await SharedPreferences.getInstance()).getString('volt_voip_token');
+        if (voip != null && voip.isNotEmpty) break;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (voip != null && voip.isNotEmpty) {
+        await ApiService.registerDevice(_authToken!, voip, platform: 'ios-voip');
+        debugPrint('VoIP token registered');
+      } else {
+        debugPrint('VoIP token not ready yet');
+      }
     } catch (e) {
       debugPrint('VoIP token register skipped: $e');
     }

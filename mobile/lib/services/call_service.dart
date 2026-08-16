@@ -114,13 +114,6 @@ class CallService extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     onShowCallUi?.call();
-    unawaited(NativeCallKit.startOutgoing(
-      id: callId,
-      name: peerName,
-      handle: peerName,
-      video: video,
-      extra: {'conversationId': conversationId, 'media': video ? 'video' : 'audio'},
-    ));
     _socket.emitCall('call:invite', {
       'conversationId': conversationId,
       'media': video ? 'video' : 'audio',
@@ -155,17 +148,28 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> hangup() async {
-    final s = session;
-    if (s == null) {
-      await _teardown();
+    if (phase == CallPhase.idle && session == null && _pc == null) {
+      unawaited(NativeCallKit.endAll());
       return;
     }
-    if (phase == CallPhase.outgoing) {
-      _socket.emitCall('call:cancel', {'callId': s.callId});
-    } else {
-      _socket.emitCall('call:hangup', {'callId': s.callId});
+    final s = session;
+    final ringing = phase == CallPhase.outgoing;
+    if (s != null) {
+      if (ringing) {
+        _socket.emitCall('call:cancel', {'callId': s.callId});
+      } else {
+        _socket.emitCall('call:hangup', {'callId': s.callId});
+      }
     }
-    await _teardown();
+    try {
+      await _teardown();
+    } catch (e) {
+      debugPrint('hangup teardown failed: $e');
+      phase = CallPhase.idle;
+      session = null;
+      notifyListeners();
+      unawaited(NativeCallKit.endAll());
+    }
   }
 
   Future<void> toggleMute() async {
@@ -192,6 +196,7 @@ class CallService extends ChangeNotifier {
 
   Future<void> toggleSpeaker() async {
     speakerOn = !speakerOn;
+    await _applyAudioSession();
     await Helper.setSpeakerphoneOn(speakerOn);
     notifyListeners();
   }
@@ -226,6 +231,7 @@ class CallService extends ChangeNotifier {
         notifyListeners();
         try {
           await _ensurePeer(session!.video);
+          if (session == null) return;
           await _makeOffer();
         } catch (e) {
           lastError = e.toString();
@@ -338,6 +344,13 @@ class CallService extends ChangeNotifier {
         return;
       }
       await presentIncoming(data);
+      final action = prefs.getString('volt_callkit_action');
+      await prefs.remove('volt_callkit_action');
+      if (action == 'accept' && phase == CallPhase.incoming) {
+        await accept();
+      } else if (action == 'decline' && phase == CallPhase.incoming) {
+        await reject();
+      }
     } catch (_) {}
   }
 
@@ -409,6 +422,7 @@ class CallService extends ChangeNotifier {
     _local = local;
     localRenderer.srcObject = _local;
     speakerOn = video;
+    await _applyAudioSession();
     await Helper.setSpeakerphoneOn(speakerOn);
 
     final pc = await createPeerConnection({
@@ -423,7 +437,7 @@ class CallService extends ChangeNotifier {
     }
     _pc = pc;
     pc.onIceCandidate = (c) {
-      if (c.candidate == null || session == null) return;
+      if (gen != _gen || c.candidate == null || session == null) return;
       _socket.emitCall('call:ice', {
         'callId': session!.callId,
         'candidate': {
@@ -434,7 +448,7 @@ class CallService extends ChangeNotifier {
       });
     };
     pc.onTrack = (event) {
-      if (event.streams.isEmpty) return;
+      if (gen != _gen || session == null || event.streams.isEmpty) return;
       _remote = event.streams.first;
       remoteRenderer.srcObject = _remote;
       if (phase != CallPhase.active) {
@@ -443,14 +457,18 @@ class CallService extends ChangeNotifier {
       notifyListeners();
     };
     pc.onConnectionState = (state) {
+      if (gen != _gen || session == null) return;
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         phase = CallPhase.active;
         notifyListeners();
         final id = session?.callId;
-        if (id != null) unawaited(NativeCallKit.connected(id));
+        if (id != null && session?.isCaller != true) {
+          unawaited(NativeCallKit.connected(id));
+        }
         final live = _pc;
-        if (live != null && session?.video == true) {
-          _tuneVideoSender(live);
+        if (live != null) {
+          unawaited(_tuneAudioSender(live));
+          if (session?.video == true) unawaited(_tuneVideoSender(live));
         }
       }
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
@@ -460,23 +478,53 @@ class CallService extends ChangeNotifier {
     for (final track in local.getTracks()) {
       await pc.addTrack(track, local);
     }
-    if (video) {
-      await _preferBestCodecs(pc);
-      await _tuneVideoSender(pc);
-    }
+    await _preferBestCodecs(pc);
+    await _tuneAudioSender(pc);
+    if (video) await _tuneVideoSender(pc);
     notifyListeners();
   }
 
+  Future<void> _applyAudioSession() async {
+    try {
+      if (WebRTC.platformIsIOS) {
+        // videoChat keeps the 48 kHz hardware path; voiceChat sounds thinner.
+        await Helper.setAppleAudioConfiguration(
+          AppleAudioConfiguration(
+            appleAudioCategory: AppleAudioCategory.playAndRecord,
+            appleAudioCategoryOptions: {
+              AppleAudioCategoryOption.allowBluetooth,
+              AppleAudioCategoryOption.allowBluetoothA2DP,
+              AppleAudioCategoryOption.allowAirPlay,
+              if (speakerOn) AppleAudioCategoryOption.defaultToSpeaker,
+            },
+            appleAudioMode: AppleAudioMode.videoChat,
+          ),
+        );
+      }
+      await Helper.ensureAudioSession();
+    } catch (_) {}
+  }
+
   Future<MediaStream> _openMedia(bool video) async {
+    await _applyAudioSession();
     final audio = <String, dynamic>{
       'echoCancellation': true,
       'noiseSuppression': true,
       'autoGainControl': true,
-      'sampleRate': 48000,
       'channelCount': 1,
+      'sampleRate': 48000,
+      'sampleSize': 16,
+      'latency': 0.01,
+      'googEchoCancellation': true,
+      'googAutoGainControl': true,
+      'googNoiseSuppression': true,
+      'googHighpassFilter': true,
+      'googAudioMirroring': false,
     };
     if (!video) {
-      return navigator.mediaDevices.getUserMedia({'audio': audio, 'video': false});
+      final stream = await navigator.mediaDevices.getUserMedia({'audio': audio, 'video': false});
+      await _pushAudioQuality(stream);
+      return stream;
     }
     // iOS only honors facingMode when it is the string "user" — a
     // {ideal: user} map is ignored and the rear camera opens instead.
@@ -486,9 +534,9 @@ class CallService extends ChangeNotifier {
         'audio': audio,
         'video': {
           'facingMode': 'user',
-          'width': {'ideal': 1080},
-          'height': {'ideal': 1920},
-          'frameRate': {'ideal': 30},
+          'width': {'min': 720, 'ideal': 1080},
+          'height': {'min': 1280, 'ideal': 1920},
+          'frameRate': {'min': 24, 'ideal': 60},
         },
       });
     } catch (_) {
@@ -499,8 +547,23 @@ class CallService extends ChangeNotifier {
     }
     await _ensureFrontCamera(stream);
     await _pushVideoQuality(stream);
+    await _pushAudioQuality(stream);
     usingFrontCam = true;
     return stream;
+  }
+
+  Future<void> _pushAudioQuality(MediaStream stream) async {
+    for (final track in stream.getAudioTracks()) {
+      try {
+        await track.applyConstraints({
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+          'sampleRate': 48000,
+          'channelCount': 1,
+        });
+      } catch (_) {}
+    }
   }
 
   bool _looksFront(String? label) {
@@ -523,20 +586,18 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _pushVideoQuality(MediaStream stream) async {
+    const attempts = <Map<String, dynamic>>[
+      {'width': 1080, 'height': 1920, 'frameRate': 60},
+      {'width': 1920, 'height': 1080, 'frameRate': 60},
+      {'width': 1080, 'height': 1920, 'frameRate': 30},
+      {'width': 1920, 'height': 1080, 'frameRate': 30},
+      {'width': 720, 'height': 1280, 'frameRate': 30},
+    ];
     for (final track in stream.getVideoTracks()) {
-      try {
-        await track.applyConstraints({
-          'width': 1080,
-          'height': 1920,
-          'frameRate': 30,
-        });
-      } catch (_) {
+      for (final c in attempts) {
         try {
-          await track.applyConstraints({
-            'width': 1920,
-            'height': 1080,
-            'frameRate': 30,
-          });
+          await track.applyConstraints(c);
+          break;
         } catch (_) {}
       }
     }
@@ -544,27 +605,96 @@ class CallService extends ChangeNotifier {
 
   Future<void> _preferBestCodecs(RTCPeerConnection pc) async {
     try {
-      final caps = await getRtpSenderCapabilities('video');
-      final codecs = [...?caps.codecs];
-      int rank(RTCRtpCodecCapability c) {
+      final videoCaps = await getRtpSenderCapabilities('video');
+      final videoCodecs = [...?videoCaps.codecs];
+      int videoRank(RTCRtpCodecCapability c) {
         final m = c.mimeType.toLowerCase();
-        if (m.contains('h264')) return 0;
-        if (m.contains('vp9')) return 1;
-        if (m.contains('av1')) return 2;
-        if (m.contains('vp8')) return 3;
+        final profile = (c.sdpFmtpLine ?? '').toLowerCase();
+        if (m.contains('h264')) {
+          // High / 4.1 first — hardware encode on iPhone, sharpest 1080p.
+          if (profile.contains('640c') || profile.contains('640028')) return 0;
+          if (profile.contains('42e01f') || profile.contains('baseline')) return 2;
+          return 1;
+        }
+        if (m.contains('vp9')) return 3;
+        if (m.contains('av1')) return 4;
+        if (m.contains('vp8')) return 5;
         return 9;
       }
 
-      codecs.sort((a, b) => rank(a).compareTo(rank(b)));
-      if (codecs.isEmpty) return;
+      videoCodecs.sort((a, b) => videoRank(a).compareTo(videoRank(b)));
+      final audioCaps = await getRtpSenderCapabilities('audio');
+      final audioCodecs = [...?audioCaps.codecs];
+      int audioRank(RTCRtpCodecCapability c) {
+        final m = c.mimeType.toLowerCase();
+        if (m.contains('opus')) return 0;
+        if (m.contains('red')) return 1;
+        return 9;
+      }
+
+      audioCodecs.sort((a, b) => audioRank(a).compareTo(audioRank(b)));
       for (final t in await pc.getTransceivers()) {
         final kind = t.sender.track?.kind ?? t.receiver.track?.kind;
-        if (kind == 'video') {
-          await t.setCodecPreferences(codecs);
+        if (kind == 'video' && videoCodecs.isNotEmpty) {
+          await t.setCodecPreferences(videoCodecs);
+        } else if (kind == 'audio' && audioCodecs.isNotEmpty) {
+          await t.setCodecPreferences(audioCodecs);
         }
       }
     } catch (_) {}
   }
+
+  Future<void> _tuneAudioSender(RTCPeerConnection pc) async {
+    try {
+      for (final sender in await pc.getSenders()) {
+        if (sender.track?.kind != 'audio') continue;
+        final params = sender.parameters;
+        if (params.encodings == null || params.encodings!.isEmpty) {
+          params.encodings = [RTCRtpEncoding()];
+        }
+        for (final enc in params.encodings!) {
+          enc.active = true;
+          enc.maxBitrate = 160000;
+          enc.minBitrate = 48000;
+          enc.priority = RTCPriorityType.high;
+          enc.networkPriority = RTCPriorityType.high;
+        }
+        await sender.setParameters(params);
+      }
+    } catch (_) {}
+  }
+
+  String _boostAudioSdp(String? sdp) {
+    if (sdp == null || sdp.isEmpty) return sdp ?? '';
+    final opus = RegExp(r'a=rtpmap:(\d+) opus/48000(?:/\d+)?', caseSensitive: false).firstMatch(sdp);
+    if (opus == null) return sdp;
+    final pt = opus.group(1)!;
+    const params =
+        'minptime=10;useinbandfec=1;usedtx=0;stereo=0;sprop-stereo=0;maxplaybackrate=48000;sprop-maxcapturerate=48000;maxaveragebitrate=160000;cbr=0';
+    final fmtp = 'a=fmtp:$pt $params';
+    final existing = RegExp('a=fmtp:$pt\\s+[^\\r\\n]*');
+    if (existing.hasMatch(sdp)) return sdp.replaceFirst(existing, fmtp);
+    return sdp.replaceFirst(opus.group(0)!, '${opus.group(0)}\r\n$fmtp');
+  }
+
+  String _boostVideoSdp(String sdp) {
+    // x-google-* bitrates are kbps. Start high so the first frames aren't mushy.
+    const extra = 'x-google-min-bitrate=2500;x-google-start-bitrate=4500;x-google-max-bitrate=8000';
+    return sdp.replaceAllMapped(
+      RegExp(r'(a=fmtp:\d+ [^\r\n]*)'),
+      (m) {
+        final line = m.group(1)!;
+        if (!line.contains('packetization-mode') && !line.contains('profile-level-id') && !line.contains('apt=')) {
+          return line;
+        }
+        if (line.contains('apt=')) return line;
+        if (line.contains('x-google-max-bitrate')) return line;
+        return '$line;$extra';
+      },
+    );
+  }
+
+  String _boostSdp(String? sdp) => _boostVideoSdp(_boostAudioSdp(sdp));
 
   Future<void> _tuneVideoSender(RTCPeerConnection pc) async {
     try {
@@ -577,9 +707,9 @@ class CallService extends ChangeNotifier {
         }
         for (final enc in params.encodings!) {
           enc.active = true;
-          enc.maxBitrate = 4500000;
-          enc.minBitrate = 1200000;
-          enc.maxFramerate = 30;
+          enc.maxBitrate = 8000000;
+          enc.minBitrate = 2500000;
+          enc.maxFramerate = 60;
           enc.scaleResolutionDownBy = 1.0;
           enc.priority = RTCPriorityType.high;
           enc.networkPriority = RTCPriorityType.high;
@@ -595,38 +725,49 @@ class CallService extends ChangeNotifier {
     final offer = await pc.createOffer({
       'offerToReceiveAudio': true,
       'offerToReceiveVideo': session!.video,
+      'voiceActivityDetection': true,
     });
-    await pc.setLocalDescription(offer);
+    final boosted = RTCSessionDescription(_boostSdp(offer.sdp), offer.type);
+    await pc.setLocalDescription(boosted);
     _socket.emitCall('call:offer', {
       'callId': session!.callId,
-      'sdp': {'type': offer.type, 'sdp': offer.sdp},
+      'sdp': {'type': boosted.type, 'sdp': boosted.sdp},
     });
   }
 
   Future<void> _onOffer(dynamic raw) async {
     if (session == null) return;
     await _ensurePeer(session!.video);
+    if (session == null) return;
     final sdp = _asSdp(raw);
     if (sdp == null || _pc == null) return;
     await _pc!.setRemoteDescription(sdp);
+    if (session == null) return;
     _remoteDescSet = true;
     await _flushIce();
+    if (session == null || _pc == null) return;
     final answer = await _pc!.createAnswer();
-    await _pc!.setLocalDescription(answer);
+    if (session == null || _pc == null) return;
+    final boosted = RTCSessionDescription(_boostSdp(answer.sdp), answer.type);
+    await _pc!.setLocalDescription(boosted);
+    if (session == null) return;
     _socket.emitCall('call:answer', {
       'callId': session!.callId,
-      'sdp': {'type': answer.type, 'sdp': answer.sdp},
+      'sdp': {'type': boosted.type, 'sdp': boosted.sdp},
     });
     phase = CallPhase.connecting;
     notifyListeners();
   }
 
   Future<void> _onAnswer(dynamic raw) async {
+    if (session == null) return;
     final sdp = _asSdp(raw);
     if (sdp == null || _pc == null) return;
     await _pc!.setRemoteDescription(sdp);
+    if (session == null) return;
     _remoteDescSet = true;
     await _flushIce();
+    if (session == null) return;
     phase = CallPhase.active;
     notifyListeners();
   }
@@ -670,26 +811,24 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _teardown() async {
-    final endedId = session?.callId;
+    final pc = _pc;
+    final local = _local;
     _gen++;
     _preparing = null;
-    unawaited(_clearPending());
-    if (!NativeCallKit.acting && endedId != null) {
-      unawaited(NativeCallKit.end(endedId));
-    }
     _pendingIce.clear();
     _remoteDescSet = false;
-    try {
-      await _pc?.close();
-    } catch (_) {}
     _pc = null;
-    try {
-      await _local?.dispose();
-    } catch (_) {}
     _local = null;
     _remote = null;
-    localRenderer.srcObject = null;
-    remoteRenderer.srcObject = null;
+    try {
+      pc?.onIceCandidate = null;
+      pc?.onTrack = null;
+      pc?.onConnectionState = null;
+    } catch (_) {}
+    // Always drop the overlay first. Setting srcObject on a renderer that
+    // was never initialize()'d throws ("Call initialize before setting the
+    // stream") — that left A stuck on outgoing and B stuck on incoming
+    // after a cancel, even though the server had already ended the call.
     phase = CallPhase.idle;
     session = null;
     muted = false;
@@ -697,6 +836,31 @@ class CallService extends ChangeNotifier {
     speakerOn = true;
     usingFrontCam = true;
     notifyListeners();
+    if (_renderersReady) {
+      try {
+        localRenderer.srcObject = null;
+      } catch (_) {}
+      try {
+        remoteRenderer.srcObject = null;
+      } catch (_) {}
+    }
+    unawaited(_clearPending());
+    unawaited(NativeCallKit.endAll());
+    unawaited(_disposeMedia(pc, local));
+  }
+
+  Future<void> _disposeMedia(RTCPeerConnection? pc, MediaStream? local) async {
+    try {
+      for (final track in local?.getTracks() ?? const <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+    } catch (_) {}
+    try {
+      await local?.dispose();
+    } catch (_) {}
+    try {
+      await pc?.close().timeout(const Duration(milliseconds: 800));
+    } catch (_) {}
   }
 
   @override

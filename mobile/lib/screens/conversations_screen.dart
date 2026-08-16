@@ -213,6 +213,7 @@ class _ConversationsScreenState extends State<ConversationsScreen>
   }
 
   Future<void> _startCall(BuildContext context, AppState app, Conversation c) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final ok = await app.startCall(c, video: false);
     if (ok || !context.mounted) return;
     final err = app.calls.lastError ?? app.error ?? 'couldn’t start call';

@@ -273,7 +273,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const fromUsername = caller?.username ?? client.data.username ?? '';
     const fromFullName = caller?.fullName ?? fromUsername;
     const fcmTokens = await this.devices.getTokensForUsers([calleeId], { excludePlatform: 'ios-voip' });
-    if (fcmTokens.length) {
+    const voipTokens = await this.devices.getTokensForUsers([calleeId], { platform: 'ios-voip' });
+    this.logger.log(`call push ${call.id}: voip=${voipTokens.length} fcm=${fcmTokens.length}`);
+    let voipSent = false;
+    if (voipTokens.length) {
+      voipSent = await this.voip.send(voipTokens, {
+        callId: call.id,
+        conversationId: call.conversationId,
+        media,
+        fromUserId: userId,
+        fromUsername,
+        fromFullName,
+      });
+    }
+    // iOS killed/background: VoIP must drive CallKit. An FCM alert on top
+    // is only a silent banner and hides the fact CallKit never rang.
+    if (!voipSent && fcmTokens.length) {
       await this.push.send(fcmTokens, {
         title: fromFullName || 'Incoming call',
         body: media === 'video' ? 'Incoming video call' : 'Incoming voice call',
@@ -288,17 +303,6 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           fromFullName,
           iceServers: JSON.stringify(this.calls.iceServers()),
         },
-      });
-    }
-    const voipTokens = await this.devices.getTokensForUsers([calleeId], { platform: 'ios-voip' });
-    if (voipTokens.length) {
-      await this.voip.send(voipTokens, {
-        callId: call.id,
-        conversationId: call.conversationId,
-        media,
-        fromUserId: userId,
-        fromUsername,
-        fromFullName,
       });
     }
     return { ok: true, callId: call.id };

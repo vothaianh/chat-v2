@@ -34,6 +34,12 @@ class _CallScreenState extends State<CallScreen> {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(_hud);
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    });
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final calls = context.read<CallService>();
@@ -89,88 +95,102 @@ class _CallScreenState extends State<CallScreen> {
       value: _hud,
       child: Material(
         color: Colors.black,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (liveVideo)
-              _fullscreenVideo(calls, remoteReady: remoteReady, localReady: localReady)
-            else
-              PulseBackdrop(child: _stage(calls, name, video)),
-            if (liveVideo) ...[
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 180,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x99000000), Color(0x00000000)],
-                      ),
+        child: liveVideo
+            ? _liveVideoStack(calls, name, remoteReady: remoteReady, localReady: localReady)
+            : Column(
+                children: [
+                  Expanded(child: PulseBackdrop(child: _stage(calls, name, video))),
+                  ColoredBox(
+                    color: const Color(0xE607070B),
+                    child: SafeArea(
+                      top: false,
+                      child: _controls(calls, video),
                     ),
                   ),
-                ),
+                ],
               ),
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 220,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [Color(0xCC000000), Color(0x00000000)],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                  child: liveVideo ? _videoHeader(calls, name) : const SizedBox.shrink(),
-                ),
-              ),
-            ),
-            if (liveVideo && localReady && remoteReady)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 56, 16, 0),
-                    child: _pip(calls),
-                  ),
-                ),
-              ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: _controls(calls, video),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
+    );
+  }
+
+  Widget _liveVideoStack(
+    CallService calls,
+    String name, {
+    required bool remoteReady,
+    required bool localReady,
+  }) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _fullscreenVideo(calls, remoteReady: remoteReady, localReady: localReady),
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 160,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x99000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 220,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Color(0xCC000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: _videoHeader(calls, name),
+            ),
+          ),
+        ),
+        if (localReady && remoteReady)
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 56, 16, 0),
+                child: _pip(calls),
+              ),
+            ),
+          ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: SafeArea(
+            top: false,
+            child: _controls(calls, true),
+          ),
+        ),
+      ],
     );
   }
 
@@ -276,10 +296,13 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  static const _btnSize = 56.0;
+  static const _iconSize = 24.0;
+
   Widget _controls(CallService calls, bool video) {
     final incoming = calls.phase == CallPhase.incoming;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: incoming ? _incomingRow(calls) : _liveRow(calls, video),
     );
   }
@@ -306,48 +329,42 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _liveRow(CallService calls, bool video) {
-    return FittedBox(
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _roundBtn(
+          icon: calls.muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+          label: calls.muted ? 'unmute' : 'mute',
+          color: calls.muted ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
+          onTap: calls.toggleMute,
+        ),
+        if (video)
           _roundBtn(
-            icon: calls.muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-            label: calls.muted ? 'unmute' : 'mute',
-            color: calls.muted ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
-            onTap: calls.toggleMute,
+            icon: calls.camOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
+            label: calls.camOff ? 'cam on' : 'cam off',
+            color: calls.camOff ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
+            onTap: calls.toggleCamera,
           ),
-          if (video) ...[
-            const SizedBox(width: 16),
-            _roundBtn(
-              icon: calls.camOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
-              label: calls.camOff ? 'cam on' : 'cam off',
-              color: calls.camOff ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
-              onTap: calls.toggleCamera,
-            ),
-            const SizedBox(width: 16),
-            _roundBtn(
-              icon: Icons.cameraswitch_rounded,
-              label: 'flip',
-              color: AppTheme.surfaceElevated,
-              onTap: calls.switchCamera,
-            ),
-          ],
-          const SizedBox(width: 16),
+        if (video)
           _roundBtn(
-            icon: calls.speakerOn ? Icons.volume_up_rounded : Icons.hearing_rounded,
-            label: calls.speakerOn ? 'speaker' : 'earpiece',
-            color: calls.speakerOn ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
-            onTap: calls.toggleSpeaker,
+            icon: Icons.cameraswitch_rounded,
+            label: 'flip',
+            color: AppTheme.surfaceElevated,
+            onTap: calls.switchCamera,
           ),
-          const SizedBox(width: 16),
-          _roundBtn(
-            icon: Icons.call_end_rounded,
-            label: 'end',
-            color: AppTheme.danger,
-            onTap: calls.hangup,
-          ),
-        ],
-      ),
+        _roundBtn(
+          icon: calls.speakerOn ? Icons.volume_up_rounded : Icons.hearing_rounded,
+          label: calls.speakerOn ? 'speaker' : 'earpiece',
+          color: calls.speakerOn ? AppTheme.surfaceHigh : AppTheme.surfaceElevated,
+          onTap: calls.toggleSpeaker,
+        ),
+        _roundBtn(
+          icon: Icons.call_end_rounded,
+          label: 'end',
+          color: AppTheme.danger,
+          onTap: calls.hangup,
+        ),
+      ],
     );
   }
 
@@ -358,25 +375,23 @@ class _CallScreenState extends State<CallScreen> {
     Color ink = AppTheme.textPrimary,
     required VoidCallback onTap,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          color: color,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: SizedBox(
-              width: 68,
-              height: 68,
-              child: Icon(icon, color: ink, size: 28),
-            ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => onTap(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: _btnSize,
+            height: _btnSize,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Icon(icon, color: ink, size: _iconSize),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: AppTheme.body(size: 11, weight: FontWeight.w700, color: AppTheme.textSecondary)),
-      ],
+          const SizedBox(height: 8),
+          Text(label, style: AppTheme.body(size: 11, weight: FontWeight.w700, color: AppTheme.textSecondary)),
+        ],
+      ),
     );
   }
 }

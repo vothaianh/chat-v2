@@ -5,6 +5,7 @@ import 'services/config.dart';
 import 'theme/app_theme.dart';
 import 'services/app_state.dart';
 import 'services/call_service.dart';
+import 'services/native_call_kit.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/call_screen.dart';
@@ -42,6 +43,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     // it can import ChatScreen without a service/screen import cycle.
     widget.appState.push.onTapConversation = _openConversationFromNotification;
     widget.appState.calls.addListener(_onCallsChanged);
+    NativeCallKit.bind(widget.appState.calls);
     widget.appState.bootstrap();
   }
 
@@ -91,6 +93,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       widget.appState.refreshFromStore();
       widget.appState.calls.restorePendingIncoming();
+      widget.appState.push.registerVoipToken();
     }
   }
 
@@ -124,7 +127,7 @@ class _ChatAppState extends State<ChatApp> with WidgetsBindingObserver {
                     fit: StackFit.expand,
                     children: [
                       child ?? const SizedBox.shrink(),
-                      if (calls.phase != CallPhase.idle)
+                      if (calls.phase != CallPhase.idle && calls.session != null)
                       const Positioned.fill(child: CallScreen()),
                     ],
                   ),

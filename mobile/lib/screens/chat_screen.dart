@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
@@ -96,6 +97,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _startCall({required bool video}) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
     final app = context.read<AppState>();
     final ok = await app.startCall(widget.conversation, video: video);
     if (ok || !mounted) return;
@@ -439,6 +442,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: TextField(
                   controller: _inputCtrl,
+                  autofocus: false,
                   onChanged: _onChanged,
                   minLines: 1,
                   maxLines: 5,

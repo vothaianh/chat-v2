@@ -9,6 +9,14 @@ import '../widgets/pulse.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  String get _host {
+    try {
+      return Uri.parse(Config.baseUrl).host;
+    } catch (_) {
+      return Config.isProd ? 'prod' : 'dev';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -20,7 +28,7 @@ class SettingsScreen extends StatelessWidget {
       extendBodyBehindAppBar: true,
       appBar: const GlassAppBar(title: Text('you')),
       body: ListView(
-        padding: EdgeInsets.only(top: topInset + 12, bottom: 130),
+        padding: EdgeInsets.only(top: topInset + 12, bottom: 180),
         children: [
           Container(
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 22),
@@ -53,19 +61,24 @@ class SettingsScreen extends StatelessWidget {
           _tile(icon: Icons.lock_outline_rounded, title: 'privacy'),
           _section('stack'),
           _tile(icon: Icons.dns_outlined, title: 'server', trailing: Config.isProd ? 'prod' : 'dev'),
-          _tile(icon: Icons.info_outline_rounded, title: 'build', trailing: '1.0.0'),
-          const SizedBox(height: 24),
+          _tile(icon: Icons.link_rounded, title: 'api', trailing: _host),
+          _tile(icon: Icons.info_outline_rounded, title: 'build', trailing: '1.0.1'),
+          const SizedBox(height: 28),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.danger,
-                side: const BorderSide(color: AppTheme.danger),
-                minimumSize: const Size.fromHeight(54),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: Material(
+              color: AppTheme.danger.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                onTap: () => app.logout(),
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  height: 56,
+                  child: Center(
+                    child: Text('log out', style: AppTheme.body(size: 16, weight: FontWeight.w800, color: AppTheme.danger)),
+                  ),
+                ),
               ),
-              onPressed: () => app.logout(),
-              child: Text('log out', style: AppTheme.body(size: 15, weight: FontWeight.w800, color: AppTheme.danger)),
             ),
           ),
         ],

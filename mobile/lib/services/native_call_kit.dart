@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
@@ -10,6 +11,7 @@ class NativeCallKit {
   static CallService? _calls;
   static bool _bound = false;
   static bool _acting = false;
+  static void Function(String token)? onVoipToken;
 
   static bool get acting => _acting;
 
@@ -18,6 +20,12 @@ class NativeCallKit {
     if (_bound) return;
     _bound = true;
     FlutterCallkitIncoming.onEvent.listen(_onEvent);
+    unawaited(_emitVoipToken());
+  }
+
+  static Future<void> _emitVoipToken() async {
+    final token = await voipToken();
+    if (token != null && token.isNotEmpty) onVoipToken?.call(token);
   }
 
   static CallKitParams _params({
@@ -163,15 +171,19 @@ class NativeCallKit {
             await calls.accept();
           }
         case CallEventActionCallDecline():
+        case CallEventActionCallEnded():
+        case CallEventActionCallCallback():
           if (calls.phase == CallPhase.incoming) {
             await calls.reject();
           } else if (calls.inCall) {
             await calls.hangup();
+          } else {
+            await endAll();
           }
-        case CallEventActionCallEnded():
-          if (calls.inCall) await calls.hangup();
         case CallEventActionCallTimeout():
           if (calls.phase == CallPhase.incoming) await calls.reject();
+        case CallEventActionDidUpdateDevicePushTokenVoip():
+          await _emitVoipToken();
         default:
           break;
       }

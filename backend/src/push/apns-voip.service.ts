@@ -15,6 +15,7 @@ type ApnModule = {
     pushType: string;
     priority: number;
     expiry: number;
+    contentAvailable: number;
     payload: Record<string, unknown>;
   };
 };
@@ -68,7 +69,7 @@ export class ApnsVoipService implements OnModuleInit {
     },
   ) {
     const valid = tokens.filter(Boolean);
-    if (!valid.length || !this.apn) return;
+    if (!valid.length || !this.apn) return false;
     const key = path.resolve(this.keyPath);
     const noteFactory = () => {
       const note = new this.apn!.Notification();
@@ -76,9 +77,11 @@ export class ApnsVoipService implements OnModuleInit {
       note.pushType = 'voip';
       note.priority = 10;
       note.expiry = Math.floor(Date.now() / 1000) + 45;
+      note.contentAvailable = 1;
       note.payload = { ...payload, type: 'call' };
       return note;
     };
+    let sent = false;
     for (const production of [false, true]) {
       const provider = new this.apn.Provider({
         token: { key, keyId: this.keyId, teamId: this.teamId },
@@ -86,12 +89,15 @@ export class ApnsVoipService implements OnModuleInit {
       });
       try {
         const res = await provider.send(noteFactory(), valid);
+        const ok = valid.length - (res.failed?.length ?? 0);
         if (res.failed?.length) {
           this.logger.warn(
             `VoIP ${production ? 'prod' : 'sandbox'}: ${res.failed.length} failed (${res.failed.map((f) => f.response?.reason).join(', ')})`,
           );
-        } else {
-          this.logger.log(`VoIP ${production ? 'prod' : 'sandbox'}: sent to ${valid.length}`);
+        }
+        if (ok > 0) {
+          sent = true;
+          this.logger.log(`VoIP ${production ? 'prod' : 'sandbox'}: sent to ${ok}`);
         }
       } catch (e) {
         this.logger.warn(`VoIP ${production ? 'prod' : 'sandbox'} error: ${(e as Error).message}`);
@@ -99,5 +105,6 @@ export class ApnsVoipService implements OnModuleInit {
         provider.shutdown();
       }
     }
+    return sent;
   }
 }

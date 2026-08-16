@@ -8,7 +8,7 @@ class RegisterTokenDto {
   token: string;
 
   @IsOptional()
-  @IsIn(['ios', 'android', 'web'])
+  @IsIn(['ios', 'android', 'web', 'ios-voip'])
   platform?: string;
 }
 
