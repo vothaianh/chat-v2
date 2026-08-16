@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS message (
   text            TEXT,
   media           VARCHAR(2048),
   caption         TEXT,
+  reply_to_id     VARCHAR(64),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

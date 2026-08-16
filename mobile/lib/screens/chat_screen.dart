@@ -21,12 +21,14 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _inputCtrl = TextEditingController();
+  final _inputFocus = FocusNode();
   final _scrollCtrl = ScrollController();
   bool _isTyping = false;
   bool _uploading = false;
   Timer? _typingTimer;
   late final AppState _app;
   int _lastMessageCount = 0;
+  ChatMessage? _replyTo;
 
   @override
   void initState() {
@@ -45,6 +47,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _app.setActiveConversation(null);
     _inputCtrl.dispose();
+    _inputFocus.dispose();
     _scrollCtrl.dispose();
     _typingTimer?.cancel();
     super.dispose();
@@ -68,9 +71,19 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty) return;
-    context.read<AppState>().sendText(widget.conversation.id, text);
+    context.read<AppState>().sendText(
+          widget.conversation.id,
+          text,
+          replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
+        );
     _inputCtrl.clear();
+    setState(() => _replyTo = null);
     _scrollToLatest();
+  }
+
+  void _setReply(ChatMessage m) {
+    setState(() => _replyTo = m);
+    _inputFocus.requestFocus();
   }
 
   Widget _headerCallBtn({
@@ -173,7 +186,9 @@ class _ChatScreenState extends State<ChatScreen> {
           widget.conversation.id,
           picked.path,
           contentType: picked.mimeType,
+          replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
         );
+    if (ok && mounted) setState(() => _replyTo = null);
     if (!mounted) return;
     setState(() => _uploading = false);
     if (ok) {
@@ -191,17 +206,33 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: AppTheme.surface,
       builder: (_) => MediaPicker(
         onEmoji: (s) {
-          app.sendSticker(widget.conversation.id, s);
+          app.sendSticker(
+            widget.conversation.id,
+            s,
+            replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
+          );
+          setState(() => _replyTo = null);
           Navigator.pop(context);
           _scrollToLatest();
         },
         onSticker: (s) {
-          app.sendSticker(widget.conversation.id, s);
+          app.sendSticker(
+            widget.conversation.id,
+            s,
+            replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
+          );
+          setState(() => _replyTo = null);
           Navigator.pop(context);
           _scrollToLatest();
         },
         onGif: (url, {caption}) {
-          app.sendGif(widget.conversation.id, url, caption: caption);
+          app.sendGif(
+            widget.conversation.id,
+            url,
+            caption: caption,
+            replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
+          );
+          setState(() => _replyTo = null);
           Navigator.pop(context);
           _scrollToLatest();
         },
@@ -345,6 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               onReact: isCall
                                   ? null
                                   : (emoji) => app.toggleReaction(widget.conversation.id, m.id, emoji),
+                              onReply: isCall ? null : () => _setReply(m),
                             ),
                           ],
                         );
@@ -429,7 +461,11 @@ class _ChatScreenState extends State<ChatScreen> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyTo != null) _replyBanner(_replyTo!),
+            Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             GestureDetector(
@@ -459,6 +495,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: TextField(
                   controller: _inputCtrl,
+                  focusNode: _inputFocus,
                   autofocus: false,
                   onChanged: _onChanged,
                   minLines: 1,
@@ -492,6 +529,48 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _replyBanner(ChatMessage m) {
+    final name = (m.senderFullName?.isNotEmpty ?? false)
+        ? m.senderFullName!
+        : (m.senderUsername ?? 'someone');
+    final preview = MessageReply.fromMessage(m).preview;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: const Border(left: BorderSide(color: AppTheme.primary, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('reply to $name', style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.primary)),
+                const SizedBox(height: 2),
+                Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.body(size: 13, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(() => _replyTo = null),
+            icon: const Icon(Icons.close_rounded, size: 18, color: AppTheme.textSecondary),
+          ),
+        ],
       ),
     );
   }

@@ -14,6 +14,7 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onCallTap;
   final String? currentUserId;
   final ValueChanged<String>? onReact;
+  final VoidCallback? onReply;
 
   const MessageBubble({
     super.key,
@@ -24,6 +25,7 @@ class MessageBubble extends StatelessWidget {
     this.onCallTap,
     this.currentUserId,
     this.onReact,
+    this.onReply,
   });
 
   @override
@@ -42,15 +44,15 @@ class MessageBubble extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.only(
             top: showSender ? 10 : 3,
-            bottom: message.reactions.isEmpty ? 3 : 8,
+            bottom: message.reactions.isEmpty ? 3 : 20,
             left: mine ? 48 : 14,
             right: mine ? 14 : 48,
           ),
-          child: Column(
-            crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          child: Stack(
+            clipBehavior: Clip.none,
             children: [
               GestureDetector(
-                onLongPress: onReact == null ? null : () => _openReactTray(context),
+                onLongPress: (onReact == null && onReply == null) ? null : () => _openReactTray(context),
                 child: Container(
                   padding: naked ? EdgeInsets.zero : const EdgeInsets.fromLTRB(14, 10, 14, 8),
                   decoration: naked
@@ -68,7 +70,12 @@ class MessageBubble extends StatelessWidget {
                   child: _content(context, naked: naked),
                 ),
               ),
-              if (message.reactions.isNotEmpty) _reactionChips(context),
+              if (message.reactions.isNotEmpty)
+                Positioned(
+                  left: 2,
+                  bottom: -16,
+                  child: _reactionChips(context),
+                ),
             ],
           ),
         ),
@@ -91,6 +98,7 @@ class MessageBubble extends StatelessWidget {
               style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.accent),
             ),
           ),
+        if (message.replyTo != null) _quote(onPrimary),
         _body(context, onPrimary),
         _meta(naked: naked),
       ],
@@ -233,35 +241,105 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  static const _quick = ['❤️', '😂', '😮', '😢', '🔥', '👍', '🎉', '🙌'];
+  Widget _quote(Color onPrimary) {
+    final q = message.replyTo!;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+      decoration: BoxDecoration(
+        color: (isMine ? AppTheme.primaryInk : Colors.white).withValues(alpha: isMine ? 0.08 : 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border(
+          left: BorderSide(color: isMine ? AppTheme.primaryInk.withValues(alpha: 0.45) : AppTheme.primary, width: 3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            q.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.body(
+              size: 11.5,
+              weight: FontWeight.w800,
+              color: isMine ? AppTheme.primaryInk : AppTheme.primary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            q.preview,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.body(size: 12.5, color: onPrimary.withValues(alpha: 0.75)),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _openReactTray(BuildContext context) {
     HapticFeedback.mediumImpact();
-    final mineEmoji = message.reactions
+    final mine = message.reactions
         .where((r) => r.userId == currentUserId)
         .map((r) => r.emoji)
         .toSet();
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surface,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.35),
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('react', style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.textFaint)),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final e in {..._quick, ...Config.emojis})
-                      _emojiBtn(ctx, e, selected: mineEmoji.contains(e)),
-                  ],
-                ),
+                if (onReact != null)
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A22),
+                      borderRadius: BorderRadius.circular(48),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 24, offset: const Offset(0, 10)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        for (final r in Config.reactionStickers)
+                          Expanded(
+                            child: _stickerBtn(ctx, r.id, r.asset, selected: mine.contains(r.id)),
+                          ),
+                      ],
+                    ),
+                  ),
+                if (onReply != null) ...[
+                  const SizedBox(height: 10),
+                  Material(
+                    color: const Color(0xFF1A1A22),
+                    borderRadius: BorderRadius.circular(18),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onReply!();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.reply_rounded, color: AppTheme.primary, size: 22),
+                            const SizedBox(width: 12),
+                            Text('reply', style: AppTheme.body(size: 16, weight: FontWeight.w700)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -270,20 +348,21 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _emojiBtn(BuildContext ctx, String emoji, {required bool selected}) {
-    return Material(
-      color: selected ? AppTheme.primary.withValues(alpha: 0.22) : AppTheme.surfaceHigh,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.pop(ctx);
-          onReact?.call(emoji);
-        },
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Center(child: Text(emoji, style: const TextStyle(fontSize: 26))),
+  Widget _stickerBtn(BuildContext ctx, String id, String asset, {required bool selected}) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.pop(ctx);
+        onReact?.call(id);
+      },
+      child: AnimatedScale(
+        scale: selected ? 1.14 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Image.asset(asset, fit: BoxFit.contain, filterQuality: FilterQuality.high),
+          ),
         ),
       ),
     );
@@ -301,27 +380,29 @@ class MessageBubble extends StatelessWidget {
         runSpacing: 4,
         children: [
           for (final entry in counts.entries)
-            GestureDetector(
-              onTap: onReact == null ? null : () => onReact!(entry.key),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(8, 3, 8, 3),
-                decoration: BoxDecoration(
-                  color: entry.value.any((r) => r.userId == currentUserId)
-                      ? AppTheme.primary.withValues(alpha: 0.18)
-                      : AppTheme.surfaceElevated,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: entry.value.any((r) => r.userId == currentUserId)
-                        ? AppTheme.primary.withValues(alpha: 0.55)
-                        : Colors.white.withValues(alpha: 0.06),
+            if (Config.reactionAsset(entry.key) != null)
+              GestureDetector(
+                onTap: onReact == null ? null : () => onReact!(entry.key),
+                child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Image.asset(
+                        Config.reactionAsset(entry.key)!,
+                        width: 36,
+                        height: 36,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                      if (entry.value.length > 1) ...[
+                        const SizedBox(width: 3),
+                        Text(
+                          '${entry.value.length}',
+                          style: AppTheme.body(size: 12, weight: FontWeight.w800),
+                        ),
+                      ],
+                    ],
                   ),
-                ),
-                child: Text(
-                  entry.value.length > 1 ? '${entry.key} ${entry.value.length}' : entry.key,
-                  style: AppTheme.body(size: 13, weight: FontWeight.w700),
-                ),
               ),
-            ),
         ],
       ),
     );

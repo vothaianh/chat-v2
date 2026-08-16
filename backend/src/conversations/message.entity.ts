@@ -44,6 +44,9 @@ export class Message {
   @Column({ type: 'text', nullable: true })
   caption: string | null;
 
+  @Column({ name: 'reply_to_id', type: 'varchar', length: 64, nullable: true })
+  replyToId: string | null;
+
   @Column({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

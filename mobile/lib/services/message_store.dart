@@ -22,7 +22,7 @@ class MessageStore {
     final path = p.join(dir, 'chat_messages_$accountId.db');
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -37,7 +37,8 @@ class MessageStore {
             senderFullName TEXT,
             createdAt INTEGER NOT NULL,
             delivered INTEGER NOT NULL DEFAULT 1,
-            reactions TEXT
+            reactions TEXT,
+            replyTo TEXT
           )
         ''');
         await db.execute(
@@ -46,6 +47,9 @@ class MessageStore {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE messages ADD COLUMN reactions TEXT');
+        }
+        if (oldVersion < 3) {
+          await db.execute('ALTER TABLE messages ADD COLUMN replyTo TEXT');
         }
       },
     );

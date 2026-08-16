@@ -7,6 +7,7 @@ import 'push_service.dart';
 import 'message_store.dart';
 import 'api_service.dart';
 import 'call_service.dart';
+import 'config.dart';
 
 class AppState extends ChangeNotifier {
   final AuthService auth = AuthService();
@@ -354,6 +355,7 @@ class AppState extends ChangeNotifier {
         byId[m.id] = prev.copyWith(
           delivered: m.delivered || prev.delivered,
           reactions: m.reactions,
+          replyTo: m.replyTo,
         );
       }
       store.upsert(byId[m.id]!);
@@ -468,7 +470,7 @@ class AppState extends ChangeNotifier {
 
   void toggleReaction(String conversationId, String messageId, String emoji) {
     final me = currentUserId;
-    if (me == null || emoji.trim().isEmpty) return;
+    if (me == null || Config.reactionAsset(emoji) == null) return;
     final list = _messages[conversationId];
     if (list == null) return;
     final i = list.indexWhere((m) => m.id == messageId);
@@ -504,7 +506,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendText(String conversationId, String text) {
+  void sendText(String conversationId, String text, {MessageReply? replyTo}) {
     final m = ChatMessage.local(
       id: '${DateTime.now().microsecondsSinceEpoch}',
       conversationId: conversationId,
@@ -513,12 +515,13 @@ class AppState extends ChangeNotifier {
       senderId: currentUserId ?? '',
       senderUsername: auth.username ?? '',
       senderFullName: auth.username ?? '',
+      replyTo: replyTo,
     );
     _addMessage(conversationId, m);
     socket.sendMessage(m);
   }
 
-  void sendSticker(String conversationId, String sticker) {
+  void sendSticker(String conversationId, String sticker, {MessageReply? replyTo}) {
     final m = ChatMessage.local(
       id: '${DateTime.now().microsecondsSinceEpoch}',
       conversationId: conversationId,
@@ -527,6 +530,7 @@ class AppState extends ChangeNotifier {
       senderId: currentUserId ?? '',
       senderUsername: auth.username ?? '',
       senderFullName: auth.username ?? '',
+      replyTo: replyTo,
     );
     _addMessage(conversationId, m);
     socket.sendMessage(m);
@@ -537,6 +541,7 @@ class AppState extends ChangeNotifier {
     String filePath, {
     String? caption,
     String? contentType,
+    MessageReply? replyTo,
   }) async {
     if (auth.token == null) return false;
     try {
@@ -555,6 +560,7 @@ class AppState extends ChangeNotifier {
         senderId: currentUserId ?? '',
         senderUsername: auth.username ?? '',
         senderFullName: auth.username ?? '',
+        replyTo: replyTo,
       );
       _addMessage(conversationId, m);
       socket.sendMessage(m, mediaKey: uploaded.key);
@@ -570,7 +576,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void sendGif(String conversationId, String gifUrl, {String? caption}) {
+  void sendGif(String conversationId, String gifUrl, {String? caption, MessageReply? replyTo}) {
     final m = ChatMessage.local(
       id: '${DateTime.now().microsecondsSinceEpoch}',
       conversationId: conversationId,
@@ -580,6 +586,7 @@ class AppState extends ChangeNotifier {
       senderId: currentUserId ?? '',
       senderUsername: auth.username ?? '',
       senderFullName: auth.username ?? '',
+      replyTo: replyTo,
     );
     _addMessage(conversationId, m);
     socket.sendMessage(m);

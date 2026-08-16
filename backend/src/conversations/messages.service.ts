@@ -15,6 +15,7 @@ export type PersistMessageInput = {
   text?: string | null;
   media?: string | null;
   caption?: string | null;
+  replyToId?: string | null;
   createdAt: Date;
 };
 
@@ -36,6 +37,17 @@ export type MessageEnvelope = {
   };
   createdAt: number;
   reactions: { userId: string; emoji: string }[];
+  replyTo?: MessageReplyPreview | null;
+};
+
+export type MessageReplyPreview = {
+  id: string;
+  type: MessageType;
+  text: string | null;
+  media: string | null;
+  senderId: string;
+  senderUsername?: string;
+  senderFullName?: string;
 };
 
 @Injectable()
@@ -64,6 +76,7 @@ export class MessagesService {
         text: input.text ?? null,
         media: input.media ?? null,
         caption: input.caption ?? null,
+        replyToId: input.replyToId ?? null,
         createdAt: input.createdAt,
       })
       .orIgnore()
@@ -193,6 +206,7 @@ export class MessagesService {
     const senders = await this.users.listByIds(senderIds);
     const byId = new Map(senders.map((s) => [s.id, s]));
     const reactionMap = await this.listReactions(rows.map((r) => r.id));
+    const replyMap = await this.replyPreviews(rows);
     return Promise.all(
       rows.map(async (m) => {
         const sender = byId.get(m.senderId);
@@ -207,9 +221,59 @@ export class MessagesService {
           sender,
           createdAt: m.createdAt.getTime(),
           reactions: reactionMap.get(m.id) ?? [],
+          replyTo: replyMap.get(m.id) ?? null,
         };
       }),
     );
+  }
+
+  async replyPreview(
+    conversationId: string,
+    replyToId: string | null | undefined,
+  ): Promise<MessageReplyPreview | null> {
+    if (!replyToId) return null;
+    const parent = await this.getInConversation(replyToId, conversationId);
+    if (!parent) return null;
+    const sender = await this.users.findById(parent.senderId);
+    return {
+      id: parent.id,
+      type: parent.type,
+      text: parent.text,
+      media: await this.storage.resolveMedia(parent.media),
+      senderId: parent.senderId,
+      senderUsername: sender?.username,
+      senderFullName: sender?.fullName,
+    };
+  }
+
+  private async replyPreviews(rows: Message[]): Promise<Map<string, MessageReplyPreview>> {
+    const out = new Map<string, MessageReplyPreview>();
+    const ids = [...new Set(rows.map((r) => r.replyToId).filter((id): id is string => !!id))];
+    if (!ids.length) return out;
+    const parents = await this.messages
+      .createQueryBuilder('m')
+      .where('m.id IN (:...ids)', { ids })
+      .getMany();
+    const byParent = new Map(parents.map((p) => [p.id, p]));
+    const senderIds = [...new Set(parents.map((p) => p.senderId))];
+    const senders = senderIds.length ? await this.users.listByIds(senderIds) : [];
+    const sendersById = new Map(senders.map((s) => [s.id, s]));
+    for (const row of rows) {
+      if (!row.replyToId) continue;
+      const parent = byParent.get(row.replyToId);
+      if (!parent) continue;
+      const sender = sendersById.get(parent.senderId);
+      out.set(row.id, {
+        id: parent.id,
+        type: parent.type,
+        text: parent.text,
+        media: await this.storage.resolveMedia(parent.media),
+        senderId: parent.senderId,
+        senderUsername: sender?.username,
+        senderFullName: sender?.fullName,
+      });
+    }
+    return out;
   }
 
   private parseBefore(before?: string): Date | undefined {

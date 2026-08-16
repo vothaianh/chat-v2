@@ -184,6 +184,74 @@ class MessageReaction {
   }
 }
 
+class MessageReply {
+  final String id;
+  final MessageType type;
+  final String? text;
+  final String? media;
+  final String senderId;
+  final String? senderUsername;
+  final String? senderFullName;
+
+  const MessageReply({
+    required this.id,
+    required this.type,
+    this.text,
+    this.media,
+    required this.senderId,
+    this.senderUsername,
+    this.senderFullName,
+  });
+
+  factory MessageReply.fromMessage(ChatMessage m) => MessageReply(
+        id: m.id,
+        type: m.type,
+        text: m.text ?? m.caption,
+        media: m.media,
+        senderId: m.senderId,
+        senderUsername: m.senderUsername,
+        senderFullName: m.senderFullName,
+      );
+
+  factory MessageReply.fromJson(Map<String, dynamic> j) => MessageReply(
+        id: j['id'] as String,
+        type: parseMessageType(j['type'] as String?),
+        text: j['text'] as String?,
+        media: j['media'] as String?,
+        senderId: j['senderId'] as String? ?? '',
+        senderUsername: j['senderUsername'] as String?,
+        senderFullName: j['senderFullName'] as String?,
+      );
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'type': type.name,
+        'text': text,
+        'media': media,
+        'senderId': senderId,
+        'senderUsername': senderUsername,
+        'senderFullName': senderFullName,
+      };
+
+  String get preview {
+    switch (type) {
+      case MessageType.text:
+        return text ?? '';
+      case MessageType.sticker:
+        return 'sticker';
+      case MessageType.gif:
+        return (text?.isNotEmpty ?? false) ? text! : 'gif';
+      case MessageType.image:
+        return (text?.isNotEmpty ?? false) ? text! : 'photo';
+      case MessageType.call:
+        return text ?? 'call';
+    }
+  }
+
+  String get author =>
+      (senderFullName?.isNotEmpty ?? false) ? senderFullName! : (senderUsername ?? 'someone');
+}
+
 class ChatMessage {
   final String id;
   final String conversationId;
@@ -197,6 +265,7 @@ class ChatMessage {
   final int createdAt;
   bool delivered;
   final List<MessageReaction> reactions;
+  final MessageReply? replyTo;
 
   ChatMessage({
     required this.id,
@@ -211,6 +280,7 @@ class ChatMessage {
     required this.createdAt,
     this.delivered = true,
     this.reactions = const [],
+    this.replyTo,
   });
 
   static int parseTimestamp(dynamic v) {
@@ -242,12 +312,21 @@ class ChatMessage {
       createdAt: parseTimestamp(j['createdAt']),
       delivered: true,
       reactions: MessageReaction.listFrom(j['reactions']),
+      replyTo: _parseReply(j['replyTo']),
     );
+  }
+
+  static MessageReply? _parseReply(dynamic raw) {
+    if (raw is! Map) return null;
+    final id = raw['id'] as String?;
+    if (id == null || id.isEmpty) return null;
+    return MessageReply.fromJson(Map<String, dynamic>.from(raw));
   }
 
   ChatMessage copyWith({
     bool? delivered,
     List<MessageReaction>? reactions,
+    MessageReply? replyTo,
   }) {
     return ChatMessage(
       id: id,
@@ -262,6 +341,7 @@ class ChatMessage {
       createdAt: createdAt,
       delivered: delivered ?? this.delivered,
       reactions: reactions ?? this.reactions,
+      replyTo: replyTo ?? this.replyTo,
     );
   }
 
@@ -276,6 +356,7 @@ class ChatMessage {
     required this.senderId,
     required this.senderUsername,
     required this.senderFullName,
+    this.replyTo,
   })  : createdAt = DateTime.now().millisecondsSinceEpoch,
         delivered = false,
         reactions = const [];
@@ -294,6 +375,7 @@ class ChatMessage {
         'createdAt': createdAt,
         'delivered': delivered ? 1 : 0,
         'reactions': jsonEncode(reactions.map((r) => r.toJson()).toList()),
+        'replyTo': replyTo == null ? null : jsonEncode(replyTo!.toJson()),
       };
 
   factory ChatMessage.fromMap(Map<String, Object?> m) {
@@ -311,7 +393,20 @@ class ChatMessage {
       createdAt: (m['createdAt'] as num).toInt(),
       delivered: (m['delivered'] as int? ?? 1) == 1,
       reactions: MessageReaction.listFrom(_decodeReactions(m['reactions'])),
+      replyTo: _parseStoredReply(m['replyTo']),
     );
+  }
+
+  static MessageReply? _parseStoredReply(Object? raw) {
+    if (raw is Map) return _parseReply(raw);
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        return _parseReply(jsonDecode(raw));
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   static dynamic _decodeReactions(Object? raw) {

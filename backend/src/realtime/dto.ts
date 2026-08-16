@@ -32,6 +32,11 @@ export class SendMessageDto {
   @IsString()
   clientId?: string; // client-generated id for dedup/optimistic UI
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  replyToId?: string;
+
   constructor(partial: Partial<SendMessageDto>) {
     Object.assign(this, partial);
   }

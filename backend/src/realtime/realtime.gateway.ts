@@ -136,6 +136,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const ts = Date.now();
     const sender = await this.users.findById(userId);
     const media = await this.messages.resolveMedia(dto.media ?? null);
+    const replyTo = await this.messages.replyPreview(dto.conversationId, dto.replyToId);
 
     const envelope = {
       id: dto.clientId || `${userId}-${ts}`,
@@ -148,6 +149,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       sender: sender ? await this.users.toPublic(sender) : undefined,
       createdAt: ts,
       reactions: [] as { userId: string; emoji: string }[],
+      replyTo,
     };
 
     try {
@@ -159,6 +161,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         text: dto.text,
         media: dto.media, // persist the key / raw ref, not the signed URL
         caption: dto.caption,
+        replyToId: replyTo?.id ?? null,
         createdAt: new Date(ts),
       });
     } catch (e) {

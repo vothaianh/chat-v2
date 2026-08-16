@@ -17,6 +17,23 @@ class Config {
   static String get appName => _active.appName;
   static bool get isProd => _active.isProd;
 
+  /// Facebook-style reaction stickers. The [id] is what we persist on the server.
+  static const List<({String id, String asset})> reactionStickers = [
+    (id: 'like', asset: 'assets/stickers/react/like.png'),
+    (id: 'love', asset: 'assets/stickers/react/love.png'),
+    (id: 'haha', asset: 'assets/stickers/react/haha.png'),
+    (id: 'wow', asset: 'assets/stickers/react/wow.png'),
+    (id: 'sad', asset: 'assets/stickers/react/sad.png'),
+    (id: 'angry', asset: 'assets/stickers/react/angry.png'),
+  ];
+
+  static String? reactionAsset(String id) {
+    for (final r in reactionStickers) {
+      if (r.id == id) return r.asset;
+    }
+    return null;
+  }
+
   static const List<String> emojis = [
     '😀', '😂', '🥰', '😎', '🤩', '😭', '😡', '👍', '🙏', '🔥',
     '🎉', '💯', '👀', '🤔', '😴', '🤯', '😱', '🙌', '💪', '✨',

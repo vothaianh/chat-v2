@@ -125,6 +125,7 @@ class SocketService {
       'media': mediaKey ?? m.media,
       'caption': m.caption,
       'clientId': m.id,
+      if (m.replyTo != null) 'replyToId': m.replyTo!.id,
     });
   }
 
