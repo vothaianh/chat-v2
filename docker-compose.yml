@@ -55,6 +55,9 @@ services:
       APNS_KEY_ID: "${APNS_KEY_ID:-}"
       APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
       APNS_BUNDLE_ID: "${APNS_BUNDLE_ID:-com.truepilot.chatv2}"
+      TURN_URL: "${TURN_URL:-}"
+      TURN_USERNAME: "${TURN_USERNAME:-}"
+      TURN_CREDENTIAL: "${TURN_CREDENTIAL:-}"
     volumes:
       - ./apns/AuthKey.p8:/app/apns/AuthKey.p8:ro
     ports:

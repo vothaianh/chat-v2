@@ -53,6 +53,9 @@ jobs:
             echo "APNS_KEY_ID=${{ secrets.APNS_KEY_ID || 'J4L9CLWU75' }}" >> .env
             echo "APNS_TEAM_ID=${{ secrets.APNS_TEAM_ID || 'N8SF3PK8CV' }}" >> .env
             echo "APNS_BUNDLE_ID=com.truepilot.chatv2" >> .env
+            echo "TURN_URL=turn:chat-api.truepilot.io:3478" >> .env
+            echo "TURN_USERNAME=volt" >> .env
+            echo "TURN_CREDENTIAL=${{ secrets.TURN_CREDENTIAL }}" >> .env
             docker pull truepilot2026/chat:latest
             docker compose up -d
           EOF

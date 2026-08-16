@@ -131,6 +131,8 @@ class CallService extends ChangeNotifier {
     }
     phase = CallPhase.connecting;
     notifyListeners();
+    await _applyAudioSession();
+    await Helper.setSpeakerphoneOn(true);
     await _waitForSocket();
     _socket.emitCall('call:accept', {'callId': s.callId});
     try {
@@ -421,9 +423,9 @@ class CallService extends ChangeNotifier {
     }
     _local = local;
     localRenderer.srcObject = _local;
-    speakerOn = video;
+    speakerOn = true;
     await _applyAudioSession();
-    await Helper.setSpeakerphoneOn(speakerOn);
+    await Helper.setSpeakerphoneOn(true);
 
     final pc = await createPeerConnection({
       'iceServers': _iceServers,

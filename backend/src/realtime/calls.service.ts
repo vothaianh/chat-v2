@@ -34,8 +34,11 @@ export class CallsService {
     const turnUser = (this.config.get<string>('turn.username') ?? process.env.TURN_USERNAME ?? '').trim();
     const turnCred = (this.config.get<string>('turn.credential') ?? process.env.TURN_CREDENTIAL ?? '').trim();
     if (turnUrl) {
+      const urls = turnUrl.includes('?')
+        ? [turnUrl]
+        : [`${turnUrl}?transport=udp`, `${turnUrl}?transport=tcp`];
       servers.push({
-        urls: turnUrl,
+        urls,
         username: turnUser || undefined,
         credential: turnCred || undefined,
       });
