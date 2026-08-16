@@ -49,6 +49,10 @@ jobs:
             echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
             echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env
             echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env
+            echo "APNS_KEY_PATH=/app/apns/AuthKey.p8" >> .env
+            echo "APNS_KEY_ID=${{ secrets.APNS_KEY_ID || 'J4L9CLWU75' }}" >> .env
+            echo "APNS_TEAM_ID=${{ secrets.APNS_TEAM_ID || 'N8SF3PK8CV' }}" >> .env
+            echo "APNS_BUNDLE_ID=com.truepilot.chatv2" >> .env
             docker pull truepilot2026/chat:latest
             docker compose up -d
           EOF

@@ -51,6 +51,12 @@ services:
       # Value is supplied via the git-ignored root .env file (see .env.example).
       FIREBASE_CREDENTIALS_BASE64: "${FIREBASE_CREDENTIALS_BASE64:-}"
       FIREBASE_PROJECT_ID: "${FIREBASE_PROJECT_ID:-chat-e4afe}"
+      APNS_KEY_PATH: "${APNS_KEY_PATH:-/app/apns/AuthKey.p8}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_BUNDLE_ID: "${APNS_BUNDLE_ID:-com.truepilot.chatv2}"
+    volumes:
+      - ./apns/AuthKey.p8:/app/apns/AuthKey.p8:ro
     ports:
       - "3010:3010"
     networks:
