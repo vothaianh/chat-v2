@@ -39,7 +39,7 @@ services:
       DB_USER: chat
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: chatdb
-      JWT_SECRET: change-me-in-production-please
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
       CORS_ORIGIN: "*"
       SOCKET_IO_PATH: /socket.io

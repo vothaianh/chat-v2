@@ -26,6 +26,9 @@ class MessageBubble extends StatelessWidget {
       return _CallHistoryChip(message: message, onTap: onCallTap);
     }
     final mine = isMine;
+    final naked = message.type == MessageType.sticker ||
+        message.type == MessageType.image ||
+        message.type == MessageType.gif;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -36,28 +39,30 @@ class MessageBubble extends StatelessWidget {
           left: mine ? 48 : 14,
           right: mine ? 14 : 48,
         ),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-        decoration: BoxDecoration(
-          color: mine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(22),
-            topRight: const Radius.circular(22),
-            bottomLeft: Radius.circular(mine ? 22 : 6),
-            bottomRight: Radius.circular(mine ? 6 : 22),
-          ),
-          border: mine
-              ? null
-              : Border.all(color: Colors.white.withValues(alpha: 0.05)),
-        ),
-        child: _content(context),
+        padding: naked ? EdgeInsets.zero : const EdgeInsets.fromLTRB(14, 10, 14, 8),
+        decoration: naked
+            ? null
+            : BoxDecoration(
+                color: mine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(22),
+                  topRight: const Radius.circular(22),
+                  bottomLeft: Radius.circular(mine ? 22 : 6),
+                  bottomRight: Radius.circular(mine ? 6 : 22),
+                ),
+                border: mine ? null : Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+        child: _content(context, naked: naked),
       ),
     );
   }
 
-  Widget _content(BuildContext context) {
-    final onPrimary = isMine ? AppTheme.textOnLime : AppTheme.textPrimary;
+  Widget _content(BuildContext context, {required bool naked}) {
+    final onPrimary = naked
+        ? AppTheme.textPrimary
+        : (isMine ? AppTheme.textOnLime : AppTheme.textPrimary);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
         if (showSender && !isMine && senderLabel != null)
           Padding(
@@ -68,7 +73,7 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
         _body(context, onPrimary),
-        _meta(),
+        _meta(naked: naked),
       ],
     );
   }
@@ -76,10 +81,18 @@ class MessageBubble extends StatelessWidget {
   Widget _body(BuildContext context, Color onPrimary) {
     switch (message.type) {
       case MessageType.sticker:
+        final media = message.media ?? '';
+        final isAsset = media.startsWith('assets/');
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(message.media ?? '', style: const TextStyle(fontSize: 44)),
+            if (isAsset)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Image.asset(media, width: 148, height: 148, fit: BoxFit.cover),
+              )
+            else
+              Text(media, style: const TextStyle(fontSize: 44)),
             if (message.caption != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -177,11 +190,11 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _meta() {
+  Widget _meta({bool naked = false}) {
     final time = _time(message.createdAt);
-    final onSecondary = isMine
-        ? AppTheme.primaryInk.withValues(alpha: 0.55)
-        : AppTheme.textFaint;
+    final onSecondary = naked
+        ? AppTheme.textFaint
+        : (isMine ? AppTheme.primaryInk.withValues(alpha: 0.55) : AppTheme.textFaint);
     return Padding(
       padding: const EdgeInsets.only(top: 5),
       child: Row(

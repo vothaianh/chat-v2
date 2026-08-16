@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
@@ -6,14 +8,39 @@ import '../services/config.dart';
 import '../widgets/glass.dart';
 import '../widgets/pulse.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
-  String get _host {
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  Timer? _pingTimer;
+  int? _pingMs;
+
+  @override
+  void initState() {
+    super.initState();
+    _measurePing();
+    _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) => _measurePing());
+  }
+
+  @override
+  void dispose() {
+    _pingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _measurePing() async {
+    final sw = Stopwatch()..start();
     try {
-      return Uri.parse(Config.baseUrl).host;
+      await http.get(Uri.parse(Config.baseUrl)).timeout(const Duration(seconds: 4));
+      if (!mounted) return;
+      setState(() => _pingMs = sw.elapsedMilliseconds);
     } catch (_) {
-      return Config.isProd ? 'prod' : 'dev';
+      if (!mounted) return;
+      setState(() => _pingMs = null);
     }
   }
 
@@ -22,6 +49,7 @@ class SettingsScreen extends StatelessWidget {
     final app = context.watch<AppState>();
     final username = app.auth.username ?? 'user';
     final topInset = MediaQuery.of(context).padding.top + 58;
+    final pingLabel = _pingMs == null ? '—' : '$_pingMs ms';
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -57,12 +85,11 @@ class SettingsScreen extends StatelessWidget {
           ),
           _section('prefs'),
           _tile(icon: Icons.dark_mode_rounded, title: 'look', trailing: 'night'),
-          _tile(icon: Icons.notifications_none_rounded, title: 'pings', trailing: 'on'),
+          _tile(icon: Icons.notifications_none_rounded, title: 'pings', trailing: pingLabel),
           _tile(icon: Icons.lock_outline_rounded, title: 'privacy'),
           _section('stack'),
           _tile(icon: Icons.dns_outlined, title: 'server', trailing: Config.isProd ? 'prod' : 'dev'),
-          _tile(icon: Icons.link_rounded, title: 'api', trailing: _host),
-          _tile(icon: Icons.info_outline_rounded, title: 'build', trailing: '1.0.1'),
+          _tile(icon: Icons.info_outline_rounded, title: 'build', trailing: '1.0.0'),
           const SizedBox(height: 28),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),

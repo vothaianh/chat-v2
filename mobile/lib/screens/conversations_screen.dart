@@ -243,7 +243,7 @@ class _ConversationsScreenState extends State<ConversationsScreen>
             : (m.senderUsername != null ? '@${m.senderUsername}' : ''));
     final body = switch (m.type) {
       MessageType.text => m.text ?? '',
-      MessageType.sticker => m.media ?? 'sticker',
+      MessageType.sticker => (m.media ?? '').startsWith('assets/') ? 'sticker' : (m.media ?? 'sticker'),
       MessageType.gif => (m.caption?.isNotEmpty ?? false) ? m.caption! : 'gif',
       MessageType.image => (m.caption?.isNotEmpty ?? false) ? m.caption! : 'photo',
       MessageType.call => m.text ?? (m.media == 'video' ? 'video call' : 'voice call'),

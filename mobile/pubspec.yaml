@@ -1,7 +1,7 @@
 name: chat_app
 description: Instant messaging client (Flutter) for the NestJS backend.
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.0+1
 
 environment:
   sdk: ^3.12.2
@@ -38,4 +38,13 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/stickers/
+    - assets/stickers/volt/
+    - assets/stickers/orchid/
+    - assets/stickers/aqua/
+    - assets/stickers/ghost/
+    - assets/stickers/cat/
+    - assets/stickers/star/
+    - assets/stickers/dumpling/
+    - assets/stickers/moon/
+    - assets/stickers/flame/
+    - assets/stickers/heart/

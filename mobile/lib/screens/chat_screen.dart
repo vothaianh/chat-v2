@@ -133,7 +133,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Navigator.pop(ctx);
                 _pickImage(ImageSource.gallery);
               }),
-              _attachTile(Icons.emoji_emotions_outlined, 'stickers & gifs', () {
+              _attachTile(Icons.emoji_emotions_outlined, 'emoji & stickers', () {
                 Navigator.pop(ctx);
                 _openMediaPicker();
               }),
@@ -190,6 +190,11 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       backgroundColor: AppTheme.surface,
       builder: (_) => MediaPicker(
+        onEmoji: (s) {
+          app.sendSticker(widget.conversation.id, s);
+          Navigator.pop(context);
+          _scrollToLatest();
+        },
         onSticker: (s) {
           app.sendSticker(widget.conversation.id, s);
           Navigator.pop(context);
