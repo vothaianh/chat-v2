@@ -145,7 +145,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       media,
       caption: dto.caption,
       senderId: userId,
-      sender: sender ? this.users.toPublic(sender) : undefined,
+      sender: sender ? await this.users.toPublic(sender) : undefined,
       createdAt: ts,
     };
 
@@ -433,7 +433,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       media: call.media,
       caption: reason,
       senderId: call.callerId,
-      sender: sender ? this.users.toPublic(sender) : undefined,
+      sender: sender ? await this.users.toPublic(sender) : undefined,
       createdAt: ts,
     });
   }

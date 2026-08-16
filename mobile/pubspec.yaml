@@ -29,6 +29,7 @@ dependencies:
   permission_handler: ^13.0.1
   flutter_callkit_incoming: ^3.1.5
   uuid: ^4.6.0
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -38,6 +39,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/sounds/ringback.wav
     - assets/stickers/volt/
     - assets/stickers/orchid/
     - assets/stickers/aqua/
@@ -48,3 +50,13 @@ flutter:
     - assets/stickers/moon/
     - assets/stickers/flame/
     - assets/stickers/heart/
+    - assets/stickers/bunny/
+    - assets/stickers/frog/
+    - assets/stickers/gremlin/
+    - assets/stickers/fox/
+    - assets/stickers/panda/
+    - assets/stickers/alien/
+    - assets/stickers/cloud/
+    - assets/stickers/mushroom/
+    - assets/stickers/shark/
+    - assets/stickers/robot/

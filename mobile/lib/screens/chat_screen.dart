@@ -261,7 +261,13 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           title: Row(
             children: [
-              PulseAvatar(label: title, size: 36, group: isGroup, online: !isGroup && _isOtherOnline(app)),
+              PulseAvatar(
+                label: title,
+                imageUrl: app.conversationAvatar(widget.conversation),
+                size: 36,
+                group: isGroup,
+                online: !isGroup && _isOtherOnline(app),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

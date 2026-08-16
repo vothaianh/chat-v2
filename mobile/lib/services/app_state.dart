@@ -74,6 +74,7 @@ class AppState extends ChangeNotifier {
     unawaited(calls.restorePendingIncoming());
     unawaited(_hydrateStore());
     unawaited(_initPushAndSync());
+    unawaited(refreshProfile());
   }
 
   Future<void> _hydrateStore() async {
@@ -188,6 +189,7 @@ class AppState extends ChangeNotifier {
       _wirePushPersist();
       await push.attach(auth.token!);
       await loadConversations();
+      await refreshProfile();
       _loading = false;
       notifyListeners();
       return true;
@@ -215,6 +217,7 @@ class AppState extends ChangeNotifier {
       _wirePushPersist();
       await push.attach(auth.token!);
       await loadConversations();
+      await refreshProfile();
       _loading = false;
       notifyListeners();
       return true;
@@ -226,6 +229,47 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       _loading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> refreshProfile() async {
+    final token = auth.token;
+    if (token == null) return;
+    try {
+      final me = await ApiService.me(token);
+      await auth.setAvatarUrl(me.avatarUrl);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<bool> updateAvatar(String filePath, {String? contentType}) async {
+    final token = auth.token;
+    if (token == null) return false;
+    try {
+      final me = await ApiService.uploadAvatar(token, filePath, contentType: contentType);
+      await auth.setAvatarUrl(me.avatarUrl);
+      final uid = auth.userId;
+      if (uid != null) {
+        _conversations = [
+          for (final c in _conversations)
+            c.copyWith(
+              members: [
+                for (final m in c.members)
+                  m.userId == uid ? m.copyWith(avatarUrl: me.avatarUrl) : m,
+              ],
+            ),
+        ];
+      }
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = e.toString();
       notifyListeners();
       return false;
     }
@@ -678,5 +722,15 @@ class AppState extends ChangeNotifier {
     }
     final names = c.members.map((m) => m.fullName ?? m.username).whereType<String>().join(', ');
     return names.isEmpty ? 'Group' : names;
+  }
+
+  String? conversationAvatar(Conversation c) {
+    if (c.type == ConversationType.group) {
+      final url = c.avatarUrl;
+      if (url != null && url.isNotEmpty) return url;
+    }
+    final other = c.members.where((m) => m.userId != currentUserId).toList();
+    if (other.isEmpty) return null;
+    return other.first.avatarUrl;
   }
 }

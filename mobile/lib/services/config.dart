@@ -51,6 +51,16 @@ class Config {
     (id: 'moon', name: 'moon', cover: 'assets/stickers/moon/hey.jpg', extra: []),
     (id: 'flame', name: 'flame', cover: 'assets/stickers/flame/hey.jpg', extra: []),
     (id: 'heart', name: 'heart', cover: 'assets/stickers/heart/hey.jpg', extra: []),
+    (id: 'bunny', name: 'bunny', cover: 'assets/stickers/bunny/hey.jpg', extra: []),
+    (id: 'frog', name: 'frog', cover: 'assets/stickers/frog/hey.jpg', extra: []),
+    (id: 'gremlin', name: 'gremlin', cover: 'assets/stickers/gremlin/hey.jpg', extra: []),
+    (id: 'fox', name: 'fox', cover: 'assets/stickers/fox/hey.jpg', extra: []),
+    (id: 'panda', name: 'panda', cover: 'assets/stickers/panda/hey.jpg', extra: []),
+    (id: 'alien', name: 'alien', cover: 'assets/stickers/alien/hey.jpg', extra: []),
+    (id: 'cloud', name: 'cloud', cover: 'assets/stickers/cloud/hey.jpg', extra: []),
+    (id: 'mushroom', name: 'shroom', cover: 'assets/stickers/mushroom/hey.jpg', extra: []),
+    (id: 'shark', name: 'shark', cover: 'assets/stickers/shark/hey.jpg', extra: []),
+    (id: 'robot', name: 'robot', cover: 'assets/stickers/robot/hey.jpg', extra: []),
   ];
 
   static List<String> stickersFor(String setId) {

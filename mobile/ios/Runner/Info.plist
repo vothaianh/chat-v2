@@ -58,13 +58,13 @@
 		<string>voip</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Volt uses the camera for video calls and to send photos in a conversation.</string>
+	<string>Volt uses the camera for video calls, your profile photo, and photos in a conversation.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Volt uses the microphone for voice and video calls.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Volt uses the local network to connect audio and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Volt needs photo access so you can send images in a conversation.</string>
+	<string>Volt needs photo access so you can set a profile photo and send images in a conversation.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Volt can save images you receive to your library.</string>
 	<key>UILaunchStoryboardName</key>

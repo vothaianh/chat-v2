@@ -59,6 +59,36 @@ class ApiService {
     throw ApiException(res);
   }
 
+  static Future<User> me(String token) async {
+    final res = await http.get(_u('/users/me'), headers: await _headers(token));
+    if (res.statusCode == 200) return User.fromJson(jsonDecode(res.body));
+    throw ApiException(res);
+  }
+
+  static Future<User> uploadAvatar(
+    String token,
+    String filePath, {
+    String? contentType,
+  }) async {
+    final uri = _u('/users/me/avatar');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers['Authorization'] = 'Bearer $token';
+    final name = p.basename(filePath);
+    final mime = contentType ?? _guessImageMime(name);
+    req.files.add(await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: name.contains('.') ? name : 'avatar.jpg',
+      contentType: MediaType.parse(mime),
+    ));
+    final streamed = await req.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return User.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+    }
+    throw ApiException(res);
+  }
+
   static Future<List<Conversation>> listConversations(String token) async {
     final res = await http.get(_u('/conversations'), headers: await _headers(token));
     if (res.statusCode == 200) {

@@ -1,10 +1,12 @@
 import 'dart:ui';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// Deterministic squircle avatar from a name — lime / orchid / violet / aqua.
 class PulseAvatar extends StatelessWidget {
   final String label;
+  final String? imageUrl;
   final double size;
   final bool online;
   final bool group;
@@ -12,6 +14,7 @@ class PulseAvatar extends StatelessWidget {
   const PulseAvatar({
     super.key,
     required this.label,
+    this.imageUrl,
     this.size = 52,
     this.online = false,
     this.group = false,
@@ -31,35 +34,53 @@ class PulseAvatar extends StatelessWidget {
     return _palettes[h % _palettes.length];
   }
 
+  Widget _fallback(double radius) {
+    final initial = label.trim().isNotEmpty ? label.trim()[0].toUpperCase() : '?';
+    final colors = _colors;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: AppTheme.display(
+          size: size * 0.38,
+          color: AppTheme.primaryInk,
+          letterSpacing: -1,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final initial = label.trim().isNotEmpty ? label.trim()[0].toUpperCase() : '?';
     final radius = size * 0.34;
-    final colors = _colors;
+    final url = imageUrl?.trim();
+    final hasImage = url != null && url.isNotEmpty && url.startsWith('http');
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(radius),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: colors,
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initial,
-              style: AppTheme.display(
-                size: size * 0.38,
-                color: AppTheme.primaryInk,
-                letterSpacing: -1,
-              ),
-            ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: hasImage
+                ? CachedNetworkImage(
+                    imageUrl: url,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => _fallback(radius),
+                    errorWidget: (_, __, ___) => _fallback(radius),
+                  )
+                : _fallback(radius),
           ),
           if (online)
             Positioned(

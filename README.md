@@ -1,292 +1,288 @@
-# Instant Messaging App (Flutter + NestJS)
+# Volt
 
-A professional instant-messaging system per `product_specs.md`:
+Instant messaging app (**Flutter** + **NestJS** + **Postgres**). Version **1.0.0**.
 
-- **Frontend:** Flutter (latest stable)
-- **Backend:** NestJS (latest) + Postgres 17 with the `uuid-ossp` extension, fully Dockerized
-- **Messages are NOT stored** — delivered instantly over **Socket.io**, then discarded
-- Durable data only: **Users**, **Device Tokens (FCM)**, **Conversations + Members**
-- Private chat & group chat
-- Register by **username + full name + email**
-- **Tag people by username** (`@vothaianh`) — mentions resolve and notify
-- **Stickers & GIF** messages
-- **FCM push** to offline recipients (graceful no-op when Firebase isn't configured)
-- Latency-focused delivery: in-memory room routing, no DB writes on the hot path
+- Private and group chat with persisted history
+- Live delivery over **Socket.io**
+- **Emoji**, **sticker** packs, **GIFs**, and **images** (stickers / GIFs / images render without a chat bubble)
+- **1:1 voice and video calls** (WebRTC) with call history in the thread
+- iOS incoming calls via **CallKit** + **PushKit** VoIP
+- Register with **username + full name + email**
+- Tag people by username (`@vothaianh`) — mentions resolve and notify
+- **FCM** (and VoIP) push to offline recipients (graceful no-op when credentials are missing)
+- Two flavors: **dev** (LAN API) and **prod** (`chat-api.truepilot.io`)
 
 ## Monorepo layout
 
 ```
 chat/
-├── docker-compose.yml          # postgres + backend (all backend services dockerized)
-├── chat-backend.env.example     # copy to backend/.env for local runs
-├── backend/                     # NestJS API + Socket.io gateway
-│   ├── Dockerfile
-│   ├── db/0001-init.sql         # uuid extension + canonical schema
-│   ├── e2e-test.js              # runnable end-to-end realtime test (node)
-│   ├── e2e-group.js             # group + offline-push test (node)
+├── docker-compose.yml          # optional postgres + backend (prod-style)
+├── backend/                    # NestJS API + Socket.io gateway
+│   ├── db/0001-init.sql        # uuid extension + schema
+│   ├── e2e-test.js             # private chat + persist + mention
+│   ├── e2e-group.js            # group + offline-push
 │   └── src/
-│       ├── auth/                # register/login/JWT, global guard, @Public()
-│       ├── users/               # User entity, username lookup, mention resolution
-│       ├── device-tokens/       # FCM token storage (multi-device per user)
-│       ├── conversations/       # private + group conversations, members
-│       ├── realtime/            # Socket.io gateway: delivery, presence, mentions
-│       ├── push/                # PushService interface + FCM impl (graceful stub)
-│       └── config/               # env-driven configuration
-└── mobile/                      # Flutter app
+│       ├── auth/               # register/login/JWT
+│       ├── users/
+│       ├── device-tokens/      # FCM + ios-voip tokens
+│       ├── conversations/      # rooms, members, message history
+│       ├── realtime/           # Socket.io: chat, presence, mentions, calls
+│       ├── push/               # FCM + APNs VoIP
+│       ├── uploads/            # image upload / S3
+│       └── config/
+└── mobile/                     # Flutter app (Volt)
+    ├── assets/stickers/        # 20 die-cut sticker packs
     └── lib/
-        ├── main.dart
-        ├── theme/app_theme.dart
-        ├── models/models.dart
-        ├── services/             # api, socket, auth, app_state, config
-        ├── widgets/              # message_bubble, media_picker (stickers/GIF)
-        └── screens/              # auth, conversations, chat, new_chat
+        ├── main_dev.dart / main_prod.dart
+        ├── config/app_config.dart
+        ├── services/           # api, socket, auth, calls, push, config
+        ├── widgets/            # message_bubble, media_picker
+        └── screens/            # auth, conversations, chat, call, settings
 ```
 
-## Architecture (the key decision: ephemeral messages)
+## Architecture
 
-The spec says **do not store messages**. So the database holds only what's needed for routing
-and identity — never a message body:
+- **Hot path:** `client → Socket.io → gateway → room.emit('message:new')`. The same envelope is **persisted** (`message` table) so history reloads after quit.
+- **History:** `GET /api/conversations/:id/messages` (cursor via `before`).
+- **Offline:** the gateway looks up FCM tokens (and iOS VoIP tokens for calls) and sends push. Missing credentials log a stub instead of failing the send.
+- **Calls:** signaling on the socket (`call:invite` … `call:ice`). Media is peer-to-peer WebRTC (STUN; optional TURN via `TURN_*`). Ended calls are written as a `type: 'call'` history row.
+- **Presence:** in-memory `userId → Set<socketId>`. Last-seen is persisted on connect/disconnect.
+- **@mentions:** `@username` is resolved and a `mention:new` event is emitted to that user’s personal room.
 
-- **Hot path (message send):** `client → Socket.io → gateway.onMessage() → server.to(room).emit('message:new')`
-  The envelope exists only in memory for the duration of the emit, then is gone. No DB write.
-- **Offline recipients:** the gateway computes offline member ids, fetches their FCM device tokens,
-  and calls `PushService.send()`. If Firebase is configured, real FCM notifications go out; if not,
-  the service logs `[push:stub]` so the flow is observable without credentials.
-- **Presence:** an in-memory `PresenceService` maps `userId → Set<socketId>`. Online members get
-  live delivery; offline members get FCM. Last-seen is the only thing persisted (on connect/disconnect).
-- **@mentions:** the gateway regex-extracts `@username` from message text, resolves them to user ids
-  via `UsersService`, and emits a `mention:new` event to each mentioned user's personal socket room.
-
-Entities (all with UUID PKs from the `uuid-ossp` extension):
+Entities (UUID PKs via `uuid-ossp`):
 
 - `user` — username, full_name, email, password_hash, avatar_url, last_seen_at
-- `device_token` — user_id, token, platform (multi-device)
-- `conversation` — type (private|group), title, avatar_url
-- `conversation_member` — conversation_id, user_id, role, last_read_at
+- `device_token` — user_id, token, platform (`ios` | `android` | `web` | `ios-voip`)
+- `conversation` / `conversation_member`
+- `message` — text | sticker | gif | image | call
 
 ## Prerequisites
 
-- Docker Desktop (running)
-- Flutter (stable channel) — for the mobile app
-- Node 22+ — only needed if you want to run the backend outside Docker or run the e2e tests
-- Android: minSdk 23 (set automatically); iOS: deployment target 15.0 (set automatically — Firebase requires it)
+- **Node 22+** — run the backend with `npm run start:dev` (do not require Docker for local work)
+- **Postgres 17** with `uuid-ossp` (ServBay / local / compose). Schema: `backend/db/0001-init.sql`
+- **Flutter** (stable)
+- Android minSdk 23; iOS deployment target 15.0
+- Docker is optional (compose for a containerized API)
 
-## 1. Run the backend (Dockerized)
+## 1. Run the backend (Node)
+
+```bash
+cd backend
+# create .env with at least:
+#   PORT=3010
+#   DB_HOST=localhost
+#   DB_PORT=5432
+#   DB_USER=chat
+#   DB_PASSWORD=…
+#   DB_NAME=chatdb
+#   JWT_SECRET=…
+npm install
+npm run start:dev
+```
+
+Verify:
+
+```bash
+curl -s http://localhost:3010/api/auth/login -X POST \
+  -H 'Content-Type: application/json' -d '{}' -i
+# expect 400 (validation) = up
+```
+
+### Optional: Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts:
+- **postgres** host `5433` → container `5432`
+- **backend** host `3010`
 
-- **postgres** (port 5433 on host → 5432 in net) with `uuid-ossp` enabled and the schema in `backend/db/0001-init.sql`
-- **backend** (port 3000) — NestJS API + Socket.io gateway
+Compose expects an external Docker network named `shared-network`.
 
-> Host port for Postgres is `5433` to avoid clashes with a local Postgres. Inside the compose network the backend connects to `postgres:5432`, so the host mapping doesn't matter.
-
-Verify:
-
-```bash
-curl -s http://localhost:3010/api/auth/login -X POST -H 'Content-Type: application/json' -d '{}' -i   # expect 400 (validation) = up
-```
-
-### Run the backend locally (without Docker) instead
+## 2. End-to-end backend tests
 
 ```bash
 cd backend
-cp ../chat-backend.env.example .env
 npm install
-npm run start:dev   # needs a Postgres at DB_HOST:DB_PORT (default localhost:5433 if you use compose's pg)
+node e2e-test.js    # private chat: live text+sticker, @mention, history persist
+node e2e-group.js   # group + offline FCM stub
 ```
 
-## 2. Run the end-to-end backend tests
-
-```bash
-cd backend
-npm install                # installs devDeps incl. socket.io-client
-node e2e-test.js           # private chat: register, socket connect, text+sticker, @mention, no-persistence
-node e2e-group.js          # group chat: create group, register device tokens, offline FCM push (stub)
-```
-
-`e2e-test.js` prints `PASS ✅` when: both sockets connect, text + sticker deliver live, the sender
-gets an ack, the recipient gets a `mention:new`, and the message is **not** found in any REST response
-(confirming no persistence).
-
-`e2e-group.js` creates a 3-member group, registers FCM tokens for the two offline members, sends a
-message, and you'll see `[FcmPushService] [push:stub] -> 2 device(s)` in the backend logs.
+`e2e-test.js` prints `PASS` when both sockets connect, text + sticker deliver live, the sender gets an ack, the recipient gets `mention:new`, and the sent text is returned from `GET /conversations/:id/messages`.
 
 ## 3. Run the Flutter app
 
-The app ships with two **flavors**, each with its own endpoint (defined in
-`mobile/lib/config/app_config.dart`):
+Flavors are defined in `mobile/lib/config/app_config.dart`. **Dev and prod share the same install** (same bundle / application id) so only one Volt is on the device at a time.
 
-| Flavor   | Endpoint                        | Entrypoint           | App name / bundle                                   |
-| -------- | ------------------------------- | -------------------- | --------------------------------------------------- |
-| **dev**  | `http://localhost:3010`         | `lib/main_dev.dart`  | TruePilot Chat Dev · `com.truepilot.chat.dev` (iOS) |
-| **prod** | `https://chat-api.truepilot.io` | `lib/main_prod.dart` | TruePilot Chat · `com.truepilot.chat`               |
+| Flavor   | App name  | Endpoint                        | Entrypoint          |
+| -------- | --------- | ------------------------------- | ------------------- |
+| **dev**  | Volt Dev  | `http://10.0.0.100:3010`        | `lib/main_dev.dart` |
+| **prod** | Volt      | `https://chat-api.truepilot.io` | `lib/main_prod.dart` |
+
+iOS bundle id: `com.truepilot.chatv2` (VoIP topic `com.truepilot.chatv2.voip`).  
+Android application id: `com.truepilot.chat`.
 
 ```bash
 cd mobile
 flutter pub get
 
-# Development (local backend)
 flutter run --flavor dev  -t lib/main_dev.dart
-
-# Production (chat-api.truepilot.io)
 flutter run --flavor prod -t lib/main_prod.dart
 ```
 
-### Pointing at a different backend / emulator
+### Pointing at a different backend
 
-- **Android emulator:** the emulator's `localhost` is the host's `10.0.2.2`, so override:
-  ```bash
-  flutter run --flavor dev -t lib/main_dev.dart --dart-define=BASE_URL=http://10.0.2.2:3000
-  ```
-- **Physical device / LAN:** use your machine's LAN IP, e.g. `--dart-define=BASE_URL=http://192.168.x.x:3000`.
-- The iOS **simulator** shares the host network, so `dev`'s `localhost` works as-is.
+- Override any flavor: `--dart-define=BASE_URL=http://192.168.x.x:3010`
+- **Android emulator:** `--dart-define=BASE_URL=http://10.0.2.2:3010` (emulator `localhost` is the host)
+- iOS **simulator** can use the host; physical devices need the LAN IP (dev flavor already uses `10.0.0.100`)
 
-`AppConfig` (`mobile/lib/config/app_config.dart`) is the single source of truth; a `BASE_URL`
-dart-define overrides the flavor's endpoint for ad-hoc testing.
-
-### Build a release IPA (iOS)
+### Release builds
 
 ```bash
-# Production IPA → build/ios/ipa/*.ipa
 flutter build ipa --flavor prod -t lib/main_prod.dart
-# No distribution cert yet? use a development export:
 flutter build ipa --flavor prod -t lib/main_prod.dart --export-method development
-```
 
-Android APK/AAB per flavor:
-
-```bash
-flutter build apk    --flavor prod -t lib/main_prod.dart --release
+flutter build apk       --flavor prod -t lib/main_prod.dart --release
 flutter build appbundle --flavor prod -t lib/main_prod.dart --release
 ```
 
-> iOS build configs (`Debug/Release/Profile-{dev,prod}`) and the `dev`/`prod` schemes live in
-> `mobile/ios/Runner.xcodeproj`; Android `dev`/`prod` product flavors are in
-> `mobile/android/app/build.gradle.kts`.
+iOS schemes live in `mobile/ios/Runner.xcodeproj`; Android flavors in `mobile/android/app/build.gradle.kts`.
 
 ### Using the app
 
 1. **Register** with a username (e.g. `vothaianh`), full name, email, password (≥8 chars).
-2. On another device/sim, register a second user (e.g. `janedoe`).
-3. **New chat → Private**, enter the other user's username → opens a chat.
-4. Send text, open the **emoji panel** (bottom-left) for **Stickers** and **GIF** tabs.
-5. Type `@username` in a message to tag someone — the recipient gets a mention notification.
-6. **New chat → Group** to start a group with multiple usernames.
-7. Presence dot (online/offline) and typing indicators appear in the chat header.
+2. On another device, register a second user.
+3. **New chat → Private**, enter the other username.
+4. Send text. Bottom composer: **emoji** / **sticker** / **gifs**, plus the photo picker.
+5. Type `@username` to mention someone.
+6. Header **phone** / **video** starts a 1:1 call. Incoming iOS rings via CallKit when a VoIP token is registered.
+7. **New chat → Group** for multiple usernames.
+8. Presence and typing show in the chat header. The **You** tab shows live API ping in milliseconds.
 
-## 4. FCM push (real, end-to-end)
+## Stickers
 
-Push is fully wired on both sides. The app id is **`com.truepilot.chat`** (matches the Firebase
-config files provided).
+The media sheet has three tabs: **emoji** (unicode), **sticker** (illustrated packs), **gifs**.
+
+Packs live under `mobile/assets/stickers/<set>/` and are registered in `mobile/lib/services/config.dart`. Every pack includes six faces: **hey**, **love**, **lol**, **wow**, **sad**, **cool**. The **volt** pack also has fire, angry, yes, thanks, sleepy, boom.
+
+| Set        | Label    | Notes                          |
+| ---------- | -------- | ------------------------------ |
+| `volt`     | volt     | Brand mascot (12 stickers)     |
+| `orchid`   | orchid   |                                |
+| `aqua`     | aqua     |                                |
+| `ghost`    | ghost    |                                |
+| `cat`      | ink cat  |                                |
+| `star`     | star     |                                |
+| `dumpling` | dumpling |                                |
+| `moon`     | moon     |                                |
+| `flame`    | flame    |                                |
+| `heart`    | heart    |                                |
+| `bunny`    | bunny    | Personality                    |
+| `frog`     | frog     | Personality                    |
+| `gremlin`  | gremlin  | Personality                    |
+| `fox`      | fox      | Personality                    |
+| `panda`    | panda    | Personality                    |
+| `alien`    | alien    | Personality                    |
+| `cloud`    | cloud    | Personality                    |
+| `mushroom` | shroom   | Personality                    |
+| `shark`    | shark    | Personality                    |
+| `robot`    | robot    | Personality                    |
+
+Add a pack by dropping six `hey.jpg` … `cool.jpg` files into `mobile/assets/stickers/<id>/`, listing the folder in `mobile/pubspec.yaml`, and appending a row to `Config.stickerSets`.
+
+A sticker send uses `type: 'sticker'` and `media` = the asset path (e.g. `assets/stickers/fox/love.jpg`).
+
+## Calls
+
+- Signaling: `call:invite`, `call:incoming` / `call:ringing`, `call:accept` / `call:reject` / `call:cancel` / `call:hangup`, then WebRTC `call:offer` / `call:answer` / `call:ice`.
+- Ring timeout is 45 seconds. Busy callee gets `call:busy`.
+- ICE: public STUN; optional TURN from `TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
+- iOS killed/background: register platform `ios-voip`; the server sends APNs VoIP (`APNS_KEY_PATH`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID=com.truepilot.chatv2`).
+- When a call ends, a `type: 'call'` message is stored so the thread shows voice/video history.
+
+## 4. FCM and VoIP push
+
+App / Firebase package on Android is **`com.truepilot.chat`**. iOS Volt uses **`com.truepilot.chatv2`**.
 
 **How it works:**
 
-- **Mobile** (`firebase_core` + `firebase_messaging` + `flutter_local_notifications`): on login the
-  `PushService` (`mobile/lib/services/push_service.dart`) initializes Firebase, requests permission,
-  fetches the FCM device token, and `POST`s it to `/api/devices/register`. Token refresh re-registers.
-  Foreground FCM messages surface as local notifications; background/terminated messages are shown by
-  the OS from the FCM `notification` payload. On logout the token is unregistered.
-- **Backend** (`PushService` interface + `FcmPushService` via `firebase-admin`): when a message is
-  delivered, offline members get an FCM push to all their registered device tokens. With no server
-  credentials it logs `[push:stub]` and still works end-to-end (see the e2e tests).
+- **Mobile** (`firebase_core` + `firebase_messaging` + `flutter_local_notifications` + `flutter_callkit_incoming`): on login, `PushService` requests permission, registers the FCM token at `/api/devices/register`, and on iOS also registers the PushKit VoIP token as `platform: ios-voip`. Logout unregisters.
+- **Backend:** offline chat uses FCM. Incoming calls prefer APNs VoIP, then FCM fallback. Without credentials the services log a stub.
 
-**Mobile Firebase config files** (already provided in this repo):
+**Mobile Firebase files** (git-ignored; templates checked in):
 
-- Android: `mobile/android/app/google-services.json` (package `com.truepilot.chat`)
-- iOS: `mobile/ios/Runner/GoogleService-Info.plist` (bundle `com.truepilot.chat`)
+- Android: `mobile/android/app/google-services.json` — template `mobile/google-services.example.json`
+- iOS: `mobile/ios/Runner/GoogleService-Info.plist` — template `mobile/GoogleService-Info.example.plist`
 
-These are **git-ignored**; checked-in templates are `mobile/google-services.example.json` and
-`mobile/GoogleService-Info.example.plist`. Each contributor copies a template, fills in their own
-Firebase project values (Firebase Console → Project settings → Your apps), and drops the real file
-into place.
+**Backend Firebase** (server send):
 
-**Backend Firebase credentials** (server-side `firebase-admin`, needed for the server to actually
-_send_ pushes):
+1. Firebase Console → Project settings → Service accounts → new private key.
+2. Base64-encode and set `FIREBASE_CREDENTIALS_BASE64` + `FIREBASE_PROJECT_ID` in `backend/.env` (or compose).
+3. `FcmPushService` initializes `firebase-admin` only when credentials exist.
 
-1. In the Firebase Console, Project settings → Service accounts → generate a new private key (JSON).
-2. Base64-encode it and set it as env vars:
-   ```bash
-   export FIREBASE_CREDENTIALS_BASE64=$(cat serviceAccount.json | base64 | tr -d '\n')
-   export FIREBASE_PROJECT_ID=chat-e4afe
-   ```
-3. Pass them to the backend container via `docker-compose.yml` (the `environment:` block already has
-   `FIREBASE_CREDENTIALS_BASE64` and `FIREBASE_PROJECT_ID`) or to your local `backend/.env`.
+### Native notes
 
-On startup, `FcmPushService.onModuleInit` initializes `firebase-admin` only if credentials are present,
-so the backend never fails to boot without Firebase.
-
-### Notes on the native builds
-
-- **Android:** minSdk is forced to 23 (FCM requirement); core library desugaring is enabled
-  (`isCoreLibraryDesugaringEnabled = true` + `desugar_jdk_libs:2.1.4`) because
-  `flutter_local_notifications` requires it. The `com.google.gms.google-services` Gradle plugin
-  (v4.4.2) is applied in `settings.gradle.kts` + `app/build.gradle.kts`.
-- **iOS:** deployment target is 15.0 (Firebase requires it). Firebase is integrated via Swift Package
-  Manager (Flutter 3.44 default — no Podfile). `GoogleService-Info.plist` is registered in the
-  Runner target's resources (done in `ios/Runner.xcodeproj`).
+- **Android:** minSdk 23; core library desugaring on (`desugar_jdk_libs:2.1.4`); Google Services plugin applied. Flavors share `applicationId` so one `google-services.json` matches.
+- **iOS:** deployment target 15.0. Camera / mic / local-network / photo usage strings are set for Volt. VoIP topic must stay `com.truepilot.chatv2.voip`.
 
 ## API reference
 
-All under `http://localhost:3010/api` (JWT `Authorization: Bearer <token>` except auth endpoints).
+All under `http://localhost:3010/api` (JWT `Authorization: Bearer <token>` except auth).
 
-| Method | Path                         | Body                                      | Notes                                           |
-| ------ | ---------------------------- | ----------------------------------------- | ----------------------------------------------- |
-| POST   | `/auth/register`             | `{ username, fullName, email, password }` | returns `{ accessToken, user }`                 |
-| POST   | `/auth/login`                | `{ login, password, fcmToken? }`          | `login` = username or email                     |
-| GET    | `/users/:username`           | —                                         | public-user view (for tagging / starting chats) |
-| GET    | `/conversations`             | —                                         | list my conversations with members              |
-| GET    | `/conversations/:id`         | —                                         | one conversation view                           |
-| POST   | `/conversations/private`     | `{ userId }`                              | creates or reuses a 1:1                         |
-| POST   | `/conversations/group`       | `{ title?, memberIds: string[] }`         | creates a group                                 |
-| POST   | `/conversations/:id/members` | `{ memberIds: string[] }`                 | add members                                     |
-| POST   | `/conversations/:id/read`    | —                                         | mark read                                       |
-| POST   | `/devices/register`          | `{ token, platform? }`                    | register FCM token                              |
-| DELETE | `/devices/unregister`        | `{ token }`                               | remove a token                                  |
+| Method | Path                              | Body                                      | Notes                                |
+| ------ | --------------------------------- | ----------------------------------------- | ------------------------------------ |
+| POST   | `/auth/register`                  | `{ username, fullName, email, password }` | `{ accessToken, user }`              |
+| POST   | `/auth/login`                     | `{ login, password, fcmToken? }`          | `login` = username or email          |
+| GET    | `/users/me`                       | —                                         | current profile (signed avatar)      |
+| POST   | `/users/me/avatar`                | multipart `file`                          | set profile photo                    |
+| GET    | `/users/:username`                | —                                         | public user for tagging / new chat   |
+| GET    | `/conversations`                  | —                                         | my conversations + members           |
+| GET    | `/conversations/:id`              | —                                         | one conversation                     |
+| GET    | `/conversations/:id/messages`     | `?limit&before`                           | persisted history                    |
+| POST   | `/conversations/private`          | `{ userId }`                              | create or reuse 1:1                  |
+| POST   | `/conversations/group`            | `{ title?, memberIds }`                   | create group                         |
+| POST   | `/conversations/:id/members`      | `{ memberIds }`                           | add members                          |
+| POST   | `/conversations/:id/read`         | —                                         | mark read                            |
+| POST   | `/uploads/image`                  | multipart `file` + `conversationId`       | image for chat                       |
+| POST   | `/uploads/presign`                | `{ conversationId, contentType }`         | S3 presign                           |
+| POST   | `/devices/register`               | `{ token, platform? }`                    | `ios` / `android` / `web` / `ios-voip` |
+| DELETE | `/devices/unregister`             | `{ token }`                               | remove a token                       |
 
-### Socket.io events (path `/socket.io`, transport `websocket`, auth `{ token }`)
+### Socket.io (path `/socket.io`, transport `websocket`, auth `{ token }`)
 
-Client → Server:
+Client → server:
 
-- `message:send` `{ conversationId, type: 'text'|'sticker'|'gif', text?, media?, caption?, clientId? }`
+- `message:send` `{ conversationId, type: 'text'|'sticker'|'gif'|'image', text?, media?, caption?, clientId? }`
 - `typing` `{ conversationId, isTyping }`
 - `message:read` `{ conversationId }`
-- `conversation:join` `{ conversationId }` (join a newly created conversation's room)
+- `conversation:join` `{ conversationId }`
+- `call:invite` `{ conversationId, media: 'audio'|'video' }`
+- `call:accept` / `call:reject` / `call:cancel` / `call:hangup` `{ callId }`
+- `call:offer` / `call:answer` / `call:ice` `{ callId, …sdp/candidate }`
 
-Server → Client:
+Server → client:
 
-- `message:new` — the message envelope (delivered live; **not** persisted)
-- `message:ack` `{ id, conversationId, createdAt }` — server receipt confirmation
+- `message:new` — envelope (also persisted)
+- `message:ack` `{ id, conversationId, createdAt }`
 - `mention:new` `{ conversationId, fromUserId, fromUsername, username, preview, createdAt }`
-- `typing` `{ conversationId, userId, username, isTyping }`
-- `message:read` `{ conversationId, userId, at }`
-- `presence:update` `{ userId, online }`
+- `typing` / `message:read` / `presence:update`
+- `call:incoming` / `call:ringing` / `call:accepted` / `call:busy` / `call:ended` (+ ICE servers on invite)
 
-On connect, the server authenticates the JWT from `handshake.auth.token` (or `?token=`), then
-auto-joins the socket to every conversation room the user is a member of — so delivery "just works"
-for existing conversations without the client doing anything.
+On connect the server authenticates `handshake.auth.token` (or `?token=`) and joins every conversation room the user belongs to.
 
-## Tech notes & decisions
+## Tech notes
 
-- **Transport:** Socket.io (per the chosen design) — reliable reconnects, room semantics, easy presence.
-- **UUIDs:** all primary keys are UUIDs generated via the `uuid-ossp` extension (`uuid_generate_v4()`),
-  satisfying the "postgres with uuid extension" requirement.
-- **No message table:** by design. The only proof a message ever existed is the live socket emit and
-  (for offline users) an FCM push. This is the spec's central requirement.
-- **`synchronize: true`** is on for dev convenience (TypeORM keeps entities/DB in sync). For production,
-  set `DB_SYNCHRONIZE=false` and use migrations; `db/0001-init.sql` is the canonical schema.
-- **Security:** passwords hashed with bcrypt; JWT auth via a global guard (`@Public()` opts out);
-  sockets authenticated from the handshake JWT and disconnected if invalid.
+- **Transport:** Socket.io — reconnects, rooms, presence.
+- **UUIDs:** `uuid-ossp` / `uuid_generate_v4()`.
+- **Messages are stored.** Live emit is still the delivery path; the `message` table is history + call records.
+- **`synchronize: true`** is on for local TypeORM convenience. Production should set `DB_SYNCHRONIZE=false` and use migrations; `db/0001-init.sql` is the canonical schema.
+- **Security:** bcrypt passwords; JWT global guard (`@Public()` opts out); sockets disconnect if the handshake JWT is invalid.
 
 ## Troubleshooting
 
-- **`address already in use: 5432`** — a local Postgres is using 5432; the compose file already maps
-  the host to `5433`. If 5433 is also taken, change the host port in `docker-compose.yml`.
-- **Flutter can't reach backend on Android emulator** — use `--dart-define=BASE_URL=http://10.0.2.2:3000`.
-- **No FCM notifications appear** — without `FIREBASE_CREDENTIALS_BASE64` the backend intentionally
-  logs `[push:stub]` instead of sending. That's expected; see "Enabling real FCM push" above.
-- **`Empty criteria(s)` / `secret or public key must be provided`** — these were earlier bugs; if you
-  see them you're on a stale build. `docker compose up -d --build backend` to rebuild.
+- **`address already in use: 5432`** — compose maps host `5433`. Local Node typically uses host Postgres on `5432` (see `backend/.env`).
+- **Flutter can’t reach the backend on a physical device** — use the machine LAN IP (`dev` defaults to `http://10.0.0.100:3010`). Android emulator: `http://10.0.2.2:3010`.
+- **No FCM notifications** — without `FIREBASE_CREDENTIALS_BASE64` the backend logs a stub. That’s expected.
+- **iOS rings only as a banner, not CallKit** — the device must have registered an `ios-voip` token; APNs env (`APNS_*`) must be set on the API that flavor talks to.
+- **Prod call has no audio across networks** — set `TURN_*` so ICE can relay.
+- **New stickers missing in the app** — they are Flutter assets; rebuild after adding files / `pubspec.yaml` entries.

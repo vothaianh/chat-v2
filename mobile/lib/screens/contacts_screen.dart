@@ -102,7 +102,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        leading: PulseAvatar(label: name, size: 48, online: online),
+        leading: PulseAvatar(label: name, imageUrl: m.avatarUrl, size: 48, online: online),
         title: Text(name, style: AppTheme.body(size: 15.5, weight: FontWeight.w700)),
         subtitle: Text(
           m.username != null ? '@${m.username}' : '',

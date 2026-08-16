@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
+import { StorageService } from '../uploads/storage.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
+    private readonly storage: StorageService,
   ) {}
 
   findById(id: string) {
@@ -49,15 +51,35 @@ export class UsersService {
 
   async listByIds(ids: string[]) {
     const users = await this.findManyByIds(ids);
-    return users.map((u) => this.toPublic(u));
+    return Promise.all(users.map((u) => this.toPublic(u)));
   }
 
-  toPublic(u: User) {
+  async setAvatar(userId: string, file: Express.Multer.File) {
+    const sniffed = this.storage.sniffImageType({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      filename: file.originalname,
+    });
+    if (!sniffed) {
+      throw new HttpException('Unsupported image type', HttpStatus.BAD_REQUEST);
+    }
+    const uploaded = await this.storage.uploadBuffer({
+      userId,
+      buffer: file.buffer,
+      contentType: sniffed.contentType,
+    });
+    await this.users.update(userId, { avatarUrl: uploaded.key });
+    const user = await this.findById(userId);
+    if (!user) throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    return this.toPublic(user);
+  }
+
+  async toPublic(u: User) {
     return {
       id: u.id,
       username: u.username,
       fullName: u.fullName,
-      avatarUrl: u.avatarUrl,
+      avatarUrl: await this.storage.resolveMedia(u.avatarUrl),
       lastSeenAt: u.lastSeenAt,
     };
   }

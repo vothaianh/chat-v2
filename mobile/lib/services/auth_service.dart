@@ -12,14 +12,17 @@ class AuthService {
   static String get kUserIdKey => 'auth_user_id_$_suffix';
   static String get _kUserId => kUserIdKey;
   static String get _kUsername => 'auth_username_$_suffix';
+  static String get _kAvatar => 'auth_avatar_$_suffix';
 
   String? _token;
   String? _userId;
   String? _username;
+  String? _avatarUrl;
 
   String? get token => _token;
   String? get userId => _userId;
   String? get username => _username;
+  String? get avatarUrl => _avatarUrl;
   bool get isAuthenticated => _token != null;
 
   Future<void> load() async {
@@ -27,6 +30,7 @@ class AuthService {
     _token = prefs.getString(_kToken);
     _userId = prefs.getString(_kUserId);
     _username = prefs.getString(_kUsername);
+    _avatarUrl = prefs.getString(_kAvatar);
   }
 
   Future<void> _persist() async {
@@ -35,11 +39,22 @@ class AuthService {
       await prefs.setString(_kToken, _token!);
       await prefs.setString(_kUserId, _userId!);
       await prefs.setString(_kUsername, _username!);
+      if (_avatarUrl != null && _avatarUrl!.isNotEmpty) {
+        await prefs.setString(_kAvatar, _avatarUrl!);
+      } else {
+        await prefs.remove(_kAvatar);
+      }
     } else {
       await prefs.remove(_kToken);
       await prefs.remove(_kUserId);
       await prefs.remove(_kUsername);
+      await prefs.remove(_kAvatar);
     }
+  }
+
+  Future<void> setAvatarUrl(String? url) async {
+    _avatarUrl = url;
+    await _persist();
   }
 
   Future<AuthResult> register({
@@ -75,6 +90,7 @@ class AuthService {
     _token = null;
     _userId = null;
     _username = null;
+    _avatarUrl = null;
     await _persist();
   }
 }

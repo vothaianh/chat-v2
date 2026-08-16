@@ -130,7 +130,12 @@ class _ConversationsScreenState extends State<ConversationsScreen>
             padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
             child: Row(
               children: [
-                PulseAvatar(label: title, online: online, group: isGroup),
+                PulseAvatar(
+                  label: title,
+                  imageUrl: app.conversationAvatar(c),
+                  online: online,
+                  group: isGroup,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

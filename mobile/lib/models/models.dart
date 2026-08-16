@@ -69,6 +69,17 @@ class ConversationMember {
         fullName: j['fullName'] as String?,
         avatarUrl: j['avatarUrl'] as String?,
       );
+
+  ConversationMember copyWith({String? avatarUrl}) {
+    return ConversationMember(
+      userId: userId,
+      role: role,
+      joinedAt: joinedAt,
+      username: username,
+      fullName: fullName,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+    );
+  }
 }
 
 class Conversation {
@@ -115,14 +126,16 @@ class Conversation {
   Conversation copyWith({
     ChatMessage? lastMessage,
     int? unreadCount,
+    List<ConversationMember>? members,
+    String? avatarUrl,
   }) {
     return Conversation(
       id: id,
       type: type,
       title: title,
-      avatarUrl: avatarUrl,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
       createdAt: createdAt,
-      members: members,
+      members: members ?? this.members,
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,
     );

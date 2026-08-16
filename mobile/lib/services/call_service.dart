@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'call_ringtone.dart';
 import 'native_call_kit.dart';
 import 'socket_service.dart';
 
@@ -114,12 +115,25 @@ class CallService extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     onShowCallUi?.call();
+    unawaited(_startOutgoingRing());
     _socket.emitCall('call:invite', {
       'conversationId': conversationId,
       'media': video ? 'video' : 'audio',
       'callId': callId,
     });
     return true;
+  }
+
+  Future<void> _startOutgoingRing() async {
+    final gen = _gen;
+    speakerOn = true;
+    await _applyAudioSession();
+    if (gen != _gen || phase != CallPhase.outgoing) return;
+    try {
+      await Helper.setSpeakerphoneOn(true);
+    } catch (_) {}
+    if (gen != _gen || phase != CallPhase.outgoing) return;
+    await CallRingtone.start();
   }
 
   Future<void> accept() async {
@@ -229,6 +243,7 @@ class CallService extends ChangeNotifier {
         break;
       case 'call:accepted':
         if (session == null || session!.isCaller != true) return;
+        await CallRingtone.stop();
         phase = CallPhase.connecting;
         notifyListeners();
         try {
@@ -816,6 +831,7 @@ class CallService extends ChangeNotifier {
     final pc = _pc;
     final local = _local;
     _gen++;
+    unawaited(CallRingtone.stop());
     _preparing = null;
     _pendingIce.clear();
     _remoteDescSet = false;
