@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class User {
   final String id;
   final String username;
@@ -159,6 +161,29 @@ MessageType parseMessageType(String? t) {
   }
 }
 
+class MessageReaction {
+  final String userId;
+  final String emoji;
+
+  const MessageReaction({required this.userId, required this.emoji});
+
+  factory MessageReaction.fromJson(Map<String, dynamic> j) => MessageReaction(
+        userId: j['userId'] as String,
+        emoji: j['emoji'] as String,
+      );
+
+  Map<String, Object?> toJson() => {'userId': userId, 'emoji': emoji};
+
+  static List<MessageReaction> listFrom(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => MessageReaction.fromJson(Map<String, dynamic>.from(e)))
+        .where((r) => r.userId.isNotEmpty && r.emoji.isNotEmpty)
+        .toList();
+  }
+}
+
 class ChatMessage {
   final String id;
   final String conversationId;
@@ -171,6 +196,7 @@ class ChatMessage {
   final String? senderFullName;
   final int createdAt;
   bool delivered;
+  final List<MessageReaction> reactions;
 
   ChatMessage({
     required this.id,
@@ -184,6 +210,7 @@ class ChatMessage {
     this.senderFullName,
     required this.createdAt,
     this.delivered = true,
+    this.reactions = const [],
   });
 
   static int parseTimestamp(dynamic v) {
@@ -214,6 +241,27 @@ class ChatMessage {
       senderFullName: (sender?['fullName'] ?? j['senderFullName']) as String?,
       createdAt: parseTimestamp(j['createdAt']),
       delivered: true,
+      reactions: MessageReaction.listFrom(j['reactions']),
+    );
+  }
+
+  ChatMessage copyWith({
+    bool? delivered,
+    List<MessageReaction>? reactions,
+  }) {
+    return ChatMessage(
+      id: id,
+      conversationId: conversationId,
+      type: type,
+      text: text,
+      media: media,
+      caption: caption,
+      senderId: senderId,
+      senderUsername: senderUsername,
+      senderFullName: senderFullName,
+      createdAt: createdAt,
+      delivered: delivered ?? this.delivered,
+      reactions: reactions ?? this.reactions,
     );
   }
 
@@ -229,7 +277,8 @@ class ChatMessage {
     required this.senderUsername,
     required this.senderFullName,
   })  : createdAt = DateTime.now().millisecondsSinceEpoch,
-        delivered = false;
+        delivered = false,
+        reactions = const [];
 
   /// Row shape for the local SQLite cache (client-side history only).
   Map<String, Object?> toMap() => {
@@ -244,6 +293,7 @@ class ChatMessage {
         'senderFullName': senderFullName,
         'createdAt': createdAt,
         'delivered': delivered ? 1 : 0,
+        'reactions': jsonEncode(reactions.map((r) => r.toJson()).toList()),
       };
 
   factory ChatMessage.fromMap(Map<String, Object?> m) {
@@ -260,7 +310,20 @@ class ChatMessage {
       senderFullName: m['senderFullName'] as String?,
       createdAt: (m['createdAt'] as num).toInt(),
       delivered: (m['delivered'] as int? ?? 1) == 1,
+      reactions: MessageReaction.listFrom(_decodeReactions(m['reactions'])),
     );
+  }
+
+  static dynamic _decodeReactions(Object? raw) {
+    if (raw is List) return raw;
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        return jsonDecode(raw);
+      } catch (_) {
+        return const [];
+      }
+    }
+    return const [];
   }
 
   /// Reconstruct a message from an FCM `data` payload (background/offline

@@ -166,63 +166,49 @@ class _ConversationsScreenState extends State<ConversationsScreen>
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                if (!isGroup || c.members.length == 2)
-                  IconButton(
-                    tooltip: 'voice call',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _startCall(context, app, c),
-                    icon: const Icon(Icons.call_rounded, color: AppTheme.primary, size: 20),
-                  ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (last != null)
-                      Text(
-                        _formatTime(last.createdAt),
-                        style: AppTheme.body(
-                          size: 11,
-                          weight: FontWeight.w700,
-                          color: unread > 0 ? AppTheme.primary : AppTheme.textFaint,
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    if (unread > 0)
-                      Container(
-                        constraints: const BoxConstraints(minWidth: 22),
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          unread > 99 ? '99+' : '$unread',
-                          textAlign: TextAlign.center,
+                const SizedBox(width: 8),
+                if (last != null || unread > 0)
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (last != null)
+                        Text(
+                          _formatTime(last.createdAt),
                           style: AppTheme.body(
                             size: 11,
-                            weight: FontWeight.w800,
-                            color: AppTheme.primaryInk,
+                            weight: FontWeight.w700,
+                            color: unread > 0 ? AppTheme.primary : AppTheme.textFaint,
                           ),
                         ),
-                      )
-                    else
-                      const SizedBox(height: 18),
-                  ],
-                ),
+                      if (unread > 0) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 22),
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            unread > 99 ? '99+' : '$unread',
+                            textAlign: TextAlign.center,
+                            style: AppTheme.body(
+                              size: 11,
+                              weight: FontWeight.w800,
+                              color: AppTheme.primaryInk,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
               ],
             ),
           ),
         ),
       ),
     );
-  }
-
-  Future<void> _startCall(BuildContext context, AppState app, Conversation c) async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    final ok = await app.startCall(c, video: false);
-    if (ok || !context.mounted) return;
-    final err = app.calls.lastError ?? app.error ?? 'couldn’t start call';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
   }
 
   bool _isOtherOnline(Conversation c, AppState app) {

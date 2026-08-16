@@ -195,7 +195,6 @@
 				EAC7B9764E0FB3CAD71464A8 /* Pods-RunnerTests.release-prod.xcconfig */,
 				DAA4A3C50767A8867F38255A /* Pods-RunnerTests.profile-prod.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};

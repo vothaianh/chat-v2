@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/config.dart';
 
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -10,6 +12,8 @@ class MessageBubble extends StatelessWidget {
   final String? senderLabel;
   final bool showSender;
   final VoidCallback? onCallTap;
+  final String? currentUserId;
+  final ValueChanged<String>? onReact;
 
   const MessageBubble({
     super.key,
@@ -18,6 +22,8 @@ class MessageBubble extends StatelessWidget {
     this.senderLabel,
     this.showSender = false,
     this.onCallTap,
+    this.currentUserId,
+    this.onReact,
   });
 
   @override
@@ -31,28 +37,41 @@ class MessageBubble extends StatelessWidget {
         message.type == MessageType.gif;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.76),
-        margin: EdgeInsets.only(
-          top: showSender ? 10 : 3,
-          bottom: 3,
-          left: mine ? 48 : 14,
-          right: mine ? 14 : 48,
-        ),
-        padding: naked ? EdgeInsets.zero : const EdgeInsets.fromLTRB(14, 10, 14, 8),
-        decoration: naked
-            ? null
-            : BoxDecoration(
-                color: mine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(22),
-                  topRight: const Radius.circular(22),
-                  bottomLeft: Radius.circular(mine ? 22 : 6),
-                  bottomRight: Radius.circular(mine ? 6 : 22),
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: showSender ? 10 : 3,
+            bottom: message.reactions.isEmpty ? 3 : 8,
+            left: mine ? 48 : 14,
+            right: mine ? 14 : 48,
+          ),
+          child: Column(
+            crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onLongPress: onReact == null ? null : () => _openReactTray(context),
+                child: Container(
+                  padding: naked ? EdgeInsets.zero : const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                  decoration: naked
+                      ? null
+                      : BoxDecoration(
+                          color: mine ? AppTheme.bubbleMine : AppTheme.bubbleTheirs,
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(22),
+                            topRight: const Radius.circular(22),
+                            bottomLeft: Radius.circular(mine ? 22 : 6),
+                            bottomRight: Radius.circular(mine ? 6 : 22),
+                          ),
+                          border: mine ? null : Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                        ),
+                  child: _content(context, naked: naked),
                 ),
-                border: mine ? null : Border.all(color: Colors.white.withValues(alpha: 0.05)),
               ),
-        child: _content(context, naked: naked),
+              if (message.reactions.isNotEmpty) _reactionChips(context),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -209,6 +228,100 @@ class MessageBubble extends StatelessWidget {
               color: onSecondary,
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  static const _quick = ['❤️', '😂', '😮', '😢', '🔥', '👍', '🎉', '🙌'];
+
+  void _openReactTray(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    final mineEmoji = message.reactions
+        .where((r) => r.userId == currentUserId)
+        .map((r) => r.emoji)
+        .toSet();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('react', style: AppTheme.body(size: 12, weight: FontWeight.w800, color: AppTheme.textFaint)),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final e in {..._quick, ...Config.emojis})
+                      _emojiBtn(ctx, e, selected: mineEmoji.contains(e)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _emojiBtn(BuildContext ctx, String emoji, {required bool selected}) {
+    return Material(
+      color: selected ? AppTheme.primary.withValues(alpha: 0.22) : AppTheme.surfaceHigh,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          Navigator.pop(ctx);
+          onReact?.call(emoji);
+        },
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(child: Text(emoji, style: const TextStyle(fontSize: 26))),
+        ),
+      ),
+    );
+  }
+
+  Widget _reactionChips(BuildContext context) {
+    final counts = <String, List<MessageReaction>>{};
+    for (final r in message.reactions) {
+      counts.putIfAbsent(r.emoji, () => []).add(r);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          for (final entry in counts.entries)
+            GestureDetector(
+              onTap: onReact == null ? null : () => onReact!(entry.key),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(8, 3, 8, 3),
+                decoration: BoxDecoration(
+                  color: entry.value.any((r) => r.userId == currentUserId)
+                      ? AppTheme.primary.withValues(alpha: 0.18)
+                      : AppTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: entry.value.any((r) => r.userId == currentUserId)
+                        ? AppTheme.primary.withValues(alpha: 0.55)
+                        : Colors.white.withValues(alpha: 0.06),
+                  ),
+                ),
+                child: Text(
+                  entry.value.length > 1 ? '${entry.key} ${entry.value.length}' : entry.key,
+                  style: AppTheme.body(size: 13, weight: FontWeight.w700),
+                ),
+              ),
+            ),
         ],
       ),
     );

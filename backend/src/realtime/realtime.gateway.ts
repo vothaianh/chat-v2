@@ -10,7 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { SendMessageDto, TypingDto, ReadDto } from './dto';
+import { SendMessageDto, TypingDto, ReadDto, ReactDto } from './dto';
 import { ConversationsService } from '../conversations/conversations.service';
 import { MessagesService } from '../conversations/messages.service';
 import { UsersService } from '../users/users.service';
@@ -147,6 +147,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       senderId: userId,
       sender: sender ? await this.users.toPublic(sender) : undefined,
       createdAt: ts,
+      reactions: [] as { userId: string; emoji: string }[],
     };
 
     try {
@@ -203,6 +204,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       username: client.data.username,
       isTyping: dto.isTyping ?? true,
     });
+  }
+
+  @SubscribeMessage('message:react')
+  async onReact(@ConnectedSocket() client: Socket, @MessageBody() dto: ReactDto) {
+    const userId: string = client.data.userId;
+    const isMember = await this.conversations.isMember(dto.conversationId, userId);
+    if (!isMember) throw new WsException('Not a conversation member');
+    const msg = await this.messages.getInConversation(dto.messageId, dto.conversationId);
+    if (!msg) throw new WsException('Message not found');
+    const reactions = await this.messages.toggleReaction(dto.messageId, userId, dto.emoji);
+    const payload = {
+      messageId: dto.messageId,
+      conversationId: dto.conversationId,
+      reactions,
+    };
+    this.server.to(this.room(dto.conversationId)).emit('message:reaction', payload);
+    return payload;
   }
 
   @SubscribeMessage('message:read')

@@ -1,0 +1,129 @@
+@import url("./fonts/fonts.css");
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 1242px;
+  height: 2688px;
+  overflow: hidden;
+  background: #07070B;
+  color: #F4F4F0;
+  font-family: "Plus Jakarta Sans", -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.canvas {
+  position: relative;
+  width: 1242px;
+  height: 2688px;
+  background: #07070B;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 92px 72px 56px;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+.orb-lime {
+  width: 620px; height: 620px;
+  background: rgba(198, 255, 74, 0.16);
+  top: -180px; right: -160px;
+}
+.orb-orchid {
+  width: 720px; height: 720px;
+  background: rgba(255, 77, 154, 0.11);
+  bottom: 220px; left: -280px;
+}
+
+.brand {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.bolt {
+  width: 64px; height: 64px;
+  border-radius: 20px;
+  background: #C6FF4A;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.bolt svg { width: 34px; height: 34px; }
+.wordmark {
+  font-family: Syne, sans-serif;
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #F4F4F0;
+}
+.idx {
+  margin-left: auto;
+  font-family: Syne, sans-serif;
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  color: #C6FF4A;
+}
+
+.headline {
+  position: relative;
+  font-family: Syne, sans-serif;
+  font-weight: 800;
+  font-size: 96px;
+  line-height: 0.94;
+  letter-spacing: -3.2px;
+  margin-bottom: 22px;
+}
+.headline em {
+  font-style: normal;
+  color: #C6FF4A;
+}
+
+.sub {
+  position: relative;
+  font-size: 30px;
+  font-weight: 600;
+  color: #9A9AA3;
+  line-height: 1.35;
+  letter-spacing: -0.3px;
+  margin-bottom: 48px;
+}
+
+.phone {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.bezel {
+  width: 100%;
+  height: 100%;
+  background: #101016;
+  border-radius: 72px;
+  padding: 12px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 40px 90px rgba(0,0,0,0.55),
+    0 0 80px rgba(198,255,74,0.06);
+}
+.screen {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center top;
+  border-radius: 60px;
+  display: block;
+  background: #07070B;
+}

@@ -50,3 +50,16 @@ export class ReadDto {
   @IsUUID()
   conversationId: string;
 }
+
+export class ReactDto {
+  @IsUUID()
+  conversationId: string;
+
+  @IsString()
+  @MaxLength(64)
+  messageId: string;
+
+  @IsString()
+  @MaxLength(16)
+  emoji: string;
+}

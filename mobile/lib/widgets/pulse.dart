@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
@@ -186,19 +187,35 @@ class PulseEmpty extends StatelessWidget {
 }
 
 Route<T> pulseRoute<T>(Widget page) {
-  return PageRouteBuilder<T>(
-    pageBuilder: (_, __, ___) => page,
-    transitionDuration: const Duration(milliseconds: 280),
-    reverseTransitionDuration: const Duration(milliseconds: 220),
-    transitionsBuilder: (_, anim, __, child) {
-      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-      return FadeTransition(
-        opacity: curved,
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0.04, 0.02), end: Offset.zero).animate(curved),
-          child: child,
-        ),
-      );
-    },
-  );
+  return CupertinoPageRoute<T>(builder: (_) => page);
+}
+
+/// Swipe right anywhere to pop — complements the iOS edge-back gesture.
+class SwipeBack extends StatefulWidget {
+  final Widget child;
+  const SwipeBack({super.key, required this.child});
+
+  @override
+  State<SwipeBack> createState() => _SwipeBackState();
+}
+
+class _SwipeBackState extends State<SwipeBack> {
+  double _dx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (_) => _dx = 0,
+      onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (_dx > 64 || v > 500) {
+          final nav = Navigator.of(context);
+          if (nav.canPop()) nav.pop();
+        }
+      },
+      child: widget.child,
+    );
+  }
 }

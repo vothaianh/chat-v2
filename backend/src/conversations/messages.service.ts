@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message, MessageType } from './message.entity';
+import { MessageReaction } from './message-reaction.entity';
 import { Conversation } from './conversation.entity';
 import { UsersService } from '../users/users.service';
 import { StorageService } from '../uploads/storage.service';
@@ -34,6 +35,7 @@ export type MessageEnvelope = {
     lastSeenAt: Date;
   };
   createdAt: number;
+  reactions: { userId: string; emoji: string }[];
 };
 
 @Injectable()
@@ -41,6 +43,8 @@ export class MessagesService {
   constructor(
     @InjectRepository(Message)
     private readonly messages: Repository<Message>,
+    @InjectRepository(MessageReaction)
+    private readonly reactions: Repository<MessageReaction>,
     @InjectRepository(Conversation)
     private readonly conversations: Repository<Conversation>,
     private readonly users: UsersService,
@@ -114,6 +118,49 @@ export class MessagesService {
     return this.storage.resolveMedia(media ?? null);
   }
 
+  async getInConversation(id: string, conversationId: string): Promise<Message | null> {
+    return this.messages.findOne({ where: { id, conversationId } });
+  }
+
+  /** Toggle: same emoji removes, different emoji replaces. One reaction per user. */
+  async toggleReaction(
+    messageId: string,
+    userId: string,
+    emoji: string,
+  ): Promise<{ userId: string; emoji: string }[]> {
+    const clean = emoji.trim().slice(0, 16);
+    if (!clean) return this.listReactions([messageId]).then((m) => m.get(messageId) ?? []);
+
+    const existing = await this.reactions.findOne({ where: { messageId, userId } });
+    if (existing && existing.emoji === clean) {
+      await this.reactions.delete({ id: existing.id });
+    } else if (existing) {
+      existing.emoji = clean;
+      await this.reactions.save(existing);
+    } else {
+      await this.reactions.insert({ messageId, userId, emoji: clean });
+    }
+    const map = await this.listReactions([messageId]);
+    return map.get(messageId) ?? [];
+  }
+
+  async listReactions(
+    messageIds: string[],
+  ): Promise<Map<string, { userId: string; emoji: string }[]>> {
+    const out = new Map<string, { userId: string; emoji: string }[]>();
+    for (const id of messageIds) out.set(id, []);
+    if (!messageIds.length) return out;
+    const rows = await this.reactions
+      .createQueryBuilder('r')
+      .where('r.messageId IN (:...ids)', { ids: messageIds })
+      .orderBy('r.createdAt', 'ASC')
+      .getMany();
+    for (const r of rows) {
+      out.get(r.messageId)?.push({ userId: r.userId, emoji: r.emoji });
+    }
+    return out;
+  }
+
   async unreadCounts(userId: string, conversationIds: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     if (!conversationIds.length) return out;
@@ -145,6 +192,7 @@ export class MessagesService {
     const senderIds = [...new Set(rows.map((r) => r.senderId))];
     const senders = await this.users.listByIds(senderIds);
     const byId = new Map(senders.map((s) => [s.id, s]));
+    const reactionMap = await this.listReactions(rows.map((r) => r.id));
     return Promise.all(
       rows.map(async (m) => {
         const sender = byId.get(m.senderId);
@@ -158,6 +206,7 @@ export class MessagesService {
           senderId: m.senderId,
           sender,
           createdAt: m.createdAt.getTime(),
+          reactions: reactionMap.get(m.id) ?? [],
         };
       }),
     );

@@ -19,6 +19,7 @@ class SocketService {
   final _presence = StreamController<Map<String, dynamic>>.broadcast();
   final _mention = StreamController<Map<String, dynamic>>.broadcast();
   final _callEvents = StreamController<Map<String, dynamic>>.broadcast();
+  final _reactions = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionState = StreamController<bool>.broadcast();
 
   Stream<ChatMessage> get onMessage => _messages.stream;
@@ -28,6 +29,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get onPresence => _presence.stream;
   Stream<Map<String, dynamic>> get onMention => _mention.stream;
   Stream<Map<String, dynamic>> get onCallEvent => _callEvents.stream;
+  Stream<Map<String, dynamic>> get onReaction => _reactions.stream;
   Stream<bool> get onConnectionState => _connectionState.stream;
 
   bool get isConnected => _connected;
@@ -91,6 +93,9 @@ class SocketService {
     _socket!.on('mention:new', (data) {
       _mention.add(data as Json);
     });
+    _socket!.on('message:reaction', (data) {
+      if (data is Map) _reactions.add(Map<String, dynamic>.from(data));
+    });
     const callEvents = [
       'call:incoming',
       'call:ringing',
@@ -131,6 +136,14 @@ class SocketService {
     _socket?.emit('message:read', {'conversationId': conversationId});
   }
 
+  void react(String conversationId, String messageId, String emoji) {
+    _socket?.emit('message:react', {
+      'conversationId': conversationId,
+      'messageId': messageId,
+      'emoji': emoji,
+    });
+  }
+
   void joinConversation(String conversationId) {
     _socket?.emit('conversation:join', {'conversationId': conversationId});
   }
@@ -154,6 +167,7 @@ class SocketService {
     _presence.close();
     _mention.close();
     _callEvents.close();
+    _reactions.close();
     _connectionState.close();
   }
 }

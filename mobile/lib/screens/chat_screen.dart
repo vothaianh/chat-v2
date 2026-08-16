@@ -306,7 +306,8 @@ class _ChatScreenState extends State<ChatScreen> {
         body: Column(
           children: [
             Expanded(
-              child: messages.isEmpty
+              child: SwipeBack(
+                child: messages.isEmpty
                   ? Center(
                       child: app.isLoadingMessages(widget.conversation.id)
                           ? const CircularProgressIndicator()
@@ -340,11 +341,16 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ? m.senderFullName
                                   : (m.senderUsername != null ? '@${m.senderUsername}' : null),
                               onCallTap: isCall ? () => _startCall(video: m.media == 'video') : null,
+                              currentUserId: app.currentUserId,
+                              onReact: isCall
+                                  ? null
+                                  : (emoji) => app.toggleReaction(widget.conversation.id, m.id, emoji),
                             ),
                           ],
                         );
                       },
                     ),
+              ),
             ),
             if (typingUserIds.isNotEmpty) _typingBar(typingUserIds, app),
             _inputBar(),

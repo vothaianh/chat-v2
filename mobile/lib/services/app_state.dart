@@ -109,6 +109,7 @@ class AppState extends ChangeNotifier {
       socket.onTyping.listen(_onTyping);
       socket.onRead.listen(_onRead);
       socket.onPresence.listen(_onPresence);
+      socket.onReaction.listen(_onReaction);
       calls.bind();
       push.onIncomingCall = (data) => calls.presentIncoming(data);
     }
@@ -347,10 +348,15 @@ class AppState extends ChangeNotifier {
     final byId = {for (final m in existing) m.id: m};
     for (final m in remote) {
       final prev = byId[m.id];
-      if (prev == null || (m.delivered && !prev.delivered)) {
+      if (prev == null) {
         byId[m.id] = m;
+      } else {
+        byId[m.id] = prev.copyWith(
+          delivered: m.delivered || prev.delivered,
+          reactions: m.reactions,
+        );
       }
-      store.upsert(m);
+      store.upsert(byId[m.id]!);
     }
     final list = byId.values.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -459,6 +465,44 @@ class AppState extends ChangeNotifier {
   // ---- messages ----
   List<ChatMessage> messagesFor(String conversationId) =>
       _messages[conversationId] ?? [];
+
+  void toggleReaction(String conversationId, String messageId, String emoji) {
+    final me = currentUserId;
+    if (me == null || emoji.trim().isEmpty) return;
+    final list = _messages[conversationId];
+    if (list == null) return;
+    final i = list.indexWhere((m) => m.id == messageId);
+    if (i < 0) return;
+    final m = list[i];
+    final mine = m.reactions.where((r) => r.userId == me).toList();
+    final List<MessageReaction> next;
+    if (mine.isNotEmpty && mine.first.emoji == emoji) {
+      next = m.reactions.where((r) => r.userId != me).toList();
+    } else {
+      next = [
+        ...m.reactions.where((r) => r.userId != me),
+        MessageReaction(userId: me, emoji: emoji),
+      ];
+    }
+    list[i] = m.copyWith(reactions: next);
+    store.upsert(list[i]);
+    socket.react(conversationId, messageId, emoji);
+    notifyListeners();
+  }
+
+  void _onReaction(Map<String, dynamic> data) {
+    final conversationId = data['conversationId'] as String?;
+    final messageId = data['messageId'] as String?;
+    if (conversationId == null || messageId == null) return;
+    final list = _messages[conversationId];
+    if (list == null) return;
+    final i = list.indexWhere((m) => m.id == messageId);
+    if (i < 0) return;
+    final reactions = MessageReaction.listFrom(data['reactions']);
+    list[i] = list[i].copyWith(reactions: reactions);
+    store.upsert(list[i]);
+    notifyListeners();
+  }
 
   void sendText(String conversationId, String text) {
     final m = ChatMessage.local(

@@ -22,7 +22,7 @@ class MessageStore {
     final path = p.join(dir, 'chat_messages_$accountId.db');
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -36,11 +36,17 @@ class MessageStore {
             senderUsername TEXT,
             senderFullName TEXT,
             createdAt INTEGER NOT NULL,
-            delivered INTEGER NOT NULL DEFAULT 1
+            delivered INTEGER NOT NULL DEFAULT 1,
+            reactions TEXT
           )
         ''');
         await db.execute(
             'CREATE INDEX idx_messages_conv ON messages(conversationId, createdAt)');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE messages ADD COLUMN reactions TEXT');
+        }
       },
     );
   }
