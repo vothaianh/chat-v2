@@ -222,7 +222,10 @@ class _ConversationsScreenState extends State<ConversationsScreen>
     if (other.isEmpty) return '';
     final u = other.first;
     final online = app.isOnline(u.userId);
-    return online ? 'live now' : (u.username != null ? '@${u.username}' : '');
+    if (online) return 'live now';
+    final label = app.lastActiveLabel(u.userId);
+    if (label != 'offline') return label;
+    return u.username != null ? '@${u.username}' : '';
   }
 
   String _preview(ChatMessage m, Conversation c, AppState app) {

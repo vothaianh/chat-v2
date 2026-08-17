@@ -60,6 +60,7 @@ class PushService {
       await _persistIncomingCall(message.data);
       return;
     }
+    if (message.data['type'] == 'reaction') return;
     await _persistFcmMessage(message);
   }
 
@@ -252,13 +253,13 @@ class PushService {
     // DatabaseException(database_closed). The fallback is for the case where
     // AppState hasn't wired up yet.
     final persist = onPersistMessage;
-    if (persist != null && message.data['messageId'] != null) {
+    if (message.data['type'] != 'reaction' && persist != null && message.data['messageId'] != null) {
       try {
         persist(ChatMessage.fromFcmData(Map<String, dynamic>.from(message.data)));
       } catch (e) {
         debugPrint('FCM tap persist failed: $e');
       }
-    } else {
+    } else if (message.data['type'] != 'reaction') {
       await _persistFcmMessage(message); // persist so it shows when the chat opens
     }
     onTapConversation?.call(conversationId);
@@ -468,7 +469,7 @@ class PushService {
     // Persist into local history so the message survives an app restart.
     // onPersistMessage (set by AppState) upserts to the store AND updates the
     // live in-memory list + notifies listeners.
-    if (data['messageId'] != null && onPersistMessage != null) {
+    if (data['type'] != 'reaction' && data['messageId'] != null && onPersistMessage != null) {
       try {
         onPersistMessage!(ChatMessage.fromFcmData(Map<String, dynamic>.from(data)));
       } catch (e) {

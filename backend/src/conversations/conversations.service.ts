@@ -148,6 +148,7 @@ export class ConversationsService {
           username: u?.username,
           fullName: u?.fullName,
           avatarUrl: u?.avatarUrl,
+          lastSeenAt: u?.lastSeenAt,
         };
       }),
     };

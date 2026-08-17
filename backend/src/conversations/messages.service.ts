@@ -140,21 +140,28 @@ export class MessagesService {
     messageId: string,
     userId: string,
     emoji: string,
-  ): Promise<{ userId: string; emoji: string }[]> {
+  ): Promise<{ reactions: { userId: string; emoji: string }[]; action: 'added' | 'changed' | 'removed' }> {
     const clean = emoji.trim().slice(0, 16);
-    if (!clean) return this.listReactions([messageId]).then((m) => m.get(messageId) ?? []);
+    if (!clean) {
+      const map = await this.listReactions([messageId]);
+      return { reactions: map.get(messageId) ?? [], action: 'removed' };
+    }
 
     const existing = await this.reactions.findOne({ where: { messageId, userId } });
+    let action: 'added' | 'changed' | 'removed';
     if (existing && existing.emoji === clean) {
       await this.reactions.delete({ id: existing.id });
+      action = 'removed';
     } else if (existing) {
       existing.emoji = clean;
       await this.reactions.save(existing);
+      action = 'changed';
     } else {
       await this.reactions.insert({ messageId, userId, emoji: clean });
+      action = 'added';
     }
     const map = await this.listReactions([messageId]);
-    return map.get(messageId) ?? [];
+    return { reactions: map.get(messageId) ?? [], action };
   }
 
   async listReactions(

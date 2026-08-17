@@ -30,6 +30,7 @@ class AppState extends ChangeNotifier {
   final Set<String> _loadingMessages = {};
   // online presence by userId
   final Map<String, bool> _online = {};
+  final Map<String, DateTime> _lastSeen = {};
   // typing: conversationId -> userId -> bool
   final Map<String, Set<String>> _typingUsers = {};
   // the conversation currently open on screen (no banner for it)
@@ -284,6 +285,7 @@ class AppState extends ChangeNotifier {
     _conversations = [];
     _messages.clear();
     _online.clear();
+    _lastSeen.clear();
     _typingUsers.clear();
     notifyListeners();
     try {
@@ -306,6 +308,7 @@ class AppState extends ChangeNotifier {
     if (auth.token == null) return;
     try {
       _conversations = await ApiService.listConversations(auth.token!);
+      _seedLastSeen(_conversations);
       for (final c in _conversations) {
         final last = c.lastMessage;
         if (last == null) continue;
@@ -729,10 +732,52 @@ class AppState extends ChangeNotifier {
     final online = data['online'] as bool?;
     if (userId == null || online == null) return;
     _online[userId] = online;
+    final raw = data['lastSeenAt'];
+    final seen = raw == null ? DateTime.now() : DateTime.tryParse(raw.toString());
+    if (seen != null) _rememberLastSeen(userId, seen);
     notifyListeners();
   }
 
+  void _seedLastSeen(List<Conversation> convs) {
+    for (final c in convs) {
+      for (final m in c.members) {
+        if (m.lastSeenAt != null) _rememberLastSeen(m.userId, m.lastSeenAt!);
+      }
+    }
+  }
+
+  void _rememberLastSeen(String userId, DateTime at) {
+    final prev = _lastSeen[userId];
+    if (prev == null || at.isAfter(prev)) _lastSeen[userId] = at;
+  }
+
   bool isOnline(String userId) => _online[userId] ?? false;
+
+  DateTime? lastSeenAt(String userId) => _lastSeen[userId];
+
+  String lastActiveLabel(String userId) {
+    if (isOnline(userId)) return 'live now';
+    final at = _lastSeen[userId];
+    if (at == null) return 'offline';
+    return formatLastActive(at);
+  }
+
+  static String formatLastActive(DateTime at) {
+    final d = DateTime.now().difference(at);
+    if (d.isNegative || d.inSeconds < 45) return 'just now';
+    if (d.inMinutes < 60) {
+      final n = d.inMinutes < 1 ? 1 : d.inMinutes;
+      return n == 1 ? '1 minute ago' : '$n minutes ago';
+    }
+    if (d.inHours < 24) {
+      final n = d.inHours;
+      return n == 1 ? '1 hour ago' : '$n hours ago';
+    }
+    if (d.inDays == 1) return 'yesterday';
+    if (d.inDays < 7) return '${d.inDays} days ago';
+    final months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    return '${at.day} ${months[at.month - 1]}';
+  }
 
   /// Start a 1:1 audio or video call in a private conversation.
   Future<bool> startCall(Conversation c, {required bool video}) async {

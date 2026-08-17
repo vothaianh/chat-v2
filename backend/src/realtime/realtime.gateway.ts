@@ -216,13 +216,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!isMember) throw new WsException('Not a conversation member');
     const msg = await this.messages.getInConversation(dto.messageId, dto.conversationId);
     if (!msg) throw new WsException('Message not found');
-    const reactions = await this.messages.toggleReaction(dto.messageId, userId, dto.emoji);
+    const { reactions, action } = await this.messages.toggleReaction(dto.messageId, userId, dto.emoji);
     const payload = {
       messageId: dto.messageId,
       conversationId: dto.conversationId,
       reactions,
     };
     this.server.to(this.room(dto.conversationId)).emit('message:reaction', payload);
+    if (action !== 'removed' && msg.senderId !== userId) {
+      this.deliverReactionPush(msg, userId, dto.emoji, dto.conversationId).catch((e) =>
+        this.logger.error(`reaction push failed: ${(e as Error).message}`),
+      );
+    }
     return payload;
   }
 
@@ -398,7 +403,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private broadcastPresence(userId: string, online: boolean) {
-    this.server.emit('presence:update', { userId, online });
+    this.server.emit('presence:update', {
+      userId,
+      online,
+      lastSeenAt: new Date().toISOString(),
+    });
   }
 
   private relaySignal(client: Socket, callId: string, event: string, extra: Record<string, unknown>) {
@@ -488,6 +497,43 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const two = (n: number) => n.toString().padStart(2, '0');
     if (h > 0) return `${h}:${two(m)}:${two(s)}`;
     return `${m}:${two(s)}`;
+  }
+
+  private static readonly reactionCopy: Record<string, string> = {
+    like: 'liked your message',
+    love: 'loved your message',
+    haha: 'laughed at your message',
+    wow: 'was surprised by your message',
+    sad: 'reacted sad to your message',
+    angry: 'reacted angry to your message',
+  };
+
+  private async deliverReactionPush(
+    msg: { id: string; senderId: string; text?: string | null; type?: string },
+    reactorId: string,
+    reaction: string,
+    conversationId: string,
+  ) {
+    const reactor = await this.users.findById(reactorId);
+    const title = reactor?.fullName || reactor?.username || 'someone';
+    const body = RealtimeGateway.reactionCopy[reaction] ?? 'reacted to your message';
+    const tokens = await this.devices.getTokensForUsers([msg.senderId], {
+      excludePlatform: 'ios-voip',
+    });
+    if (!tokens.length) return;
+    await this.push.send(tokens, {
+      title,
+      body,
+      data: {
+        conversationId,
+        type: 'reaction',
+        messageId: msg.id,
+        reaction,
+        senderId: reactorId,
+        senderUsername: reactor?.username ?? '',
+        senderFullName: reactor?.fullName ?? '',
+      },
+    });
   }
 
   private async deliverPushForOffline(dto: SendMessageDto, envelope: any) {

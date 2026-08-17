@@ -53,6 +53,7 @@ class ConversationMember {
   final String? username;
   final String? fullName;
   final String? avatarUrl;
+  final DateTime? lastSeenAt;
 
   ConversationMember({
     required this.userId,
@@ -61,6 +62,7 @@ class ConversationMember {
     this.username,
     this.fullName,
     this.avatarUrl,
+    this.lastSeenAt,
   });
 
   factory ConversationMember.fromJson(Map<String, dynamic> j) => ConversationMember(
@@ -70,9 +72,10 @@ class ConversationMember {
         username: j['username'] as String?,
         fullName: j['fullName'] as String?,
         avatarUrl: j['avatarUrl'] as String?,
+        lastSeenAt: j['lastSeenAt'] != null ? DateTime.tryParse(j['lastSeenAt'].toString()) : null,
       );
 
-  ConversationMember copyWith({String? avatarUrl}) {
+  ConversationMember copyWith({String? avatarUrl, DateTime? lastSeenAt}) {
     return ConversationMember(
       userId: userId,
       role: role,
@@ -80,6 +83,7 @@ class ConversationMember {
       username: username,
       fullName: fullName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
     );
   }
 }

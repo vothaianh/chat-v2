@@ -29,6 +29,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late final AppState _app;
   int _lastMessageCount = 0;
   ChatMessage? _replyTo;
+  Timer? _presenceTick;
 
   @override
   void initState() {
@@ -41,6 +42,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _app.markConversationRead(widget.conversation.id);
       _app.loadMessages(widget.conversation.id);
     });
+    _presenceTick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -50,6 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _inputFocus.dispose();
     _scrollCtrl.dispose();
     _typingTimer?.cancel();
+    _presenceTick?.cancel();
     super.dispose();
   }
 
@@ -432,9 +437,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _privatePresence(AppState app) {
-    final online = _isOtherOnline(app);
+    final other = widget.conversation.members.where((m) => m.userId != app.currentUserId).toList();
+    if (other.isEmpty) return const SizedBox.shrink();
+    final online = app.isOnline(other.first.userId);
     return Text(
-      online ? 'live now' : 'offline',
+      app.lastActiveLabel(other.first.userId),
       style: AppTheme.body(size: 11.5, weight: FontWeight.w700, color: online ? AppTheme.primary : AppTheme.textFaint),
     );
   }
