@@ -65,6 +65,8 @@
 	<string>Volt uses the local network to connect audio and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Volt needs photo access so you can set a profile photo and send images in a conversation.</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Volt can save images you receive to your library.</string>
 	<key>UILaunchStoryboardName</key>

@@ -2,12 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/app_state.dart';
+import '../services/recent_photos.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/media_picker.dart';
+import '../widgets/recent_photo_tray.dart';
 import '../widgets/pulse.dart';
 import '../widgets/glass.dart';
 
@@ -19,7 +22,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _inputCtrl = TextEditingController();
   final _inputFocus = FocusNode();
   final _scrollCtrl = ScrollController();
@@ -30,17 +33,22 @@ class _ChatScreenState extends State<ChatScreen> {
   int _lastMessageCount = 0;
   ChatMessage? _replyTo;
   Timer? _presenceTick;
+  List<AssetEntity> _newPhotos = const [];
 
   @override
   void initState() {
     super.initState();
     _app = context.read<AppState>();
     _app.socket.joinConversation(widget.conversation.id);
+    WidgetsBinding.instance.addObserver(this);
+    PhotoManager.addChangeCallback(_onLibraryChanged);
+    PhotoManager.startChangeNotify();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _app.setActiveConversation(widget.conversation.id);
       _app.markConversationRead(widget.conversation.id);
       _app.loadMessages(widget.conversation.id);
+      _loadNewPhotos(promptIfNeeded: true);
     });
     _presenceTick = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
@@ -49,6 +57,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    PhotoManager.removeChangeCallback(_onLibraryChanged);
+    PhotoManager.stopChangeNotify();
     _app.setActiveConversation(null);
     _inputCtrl.dispose();
     _inputFocus.dispose();
@@ -56,6 +67,22 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingTimer?.cancel();
     _presenceTick?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      Future<void>.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) _loadNewPhotos();
+      });
+      Future<void>.delayed(const Duration(milliseconds: 1400), () {
+        if (mounted) _loadNewPhotos();
+      });
+    }
+  }
+
+  void _onLibraryChanged(MethodCall call) {
+    _loadNewPhotos();
   }
 
   void _onChanged(String v) {
@@ -84,6 +111,49 @@ class _ChatScreenState extends State<ChatScreen> {
     _inputCtrl.clear();
     setState(() => _replyTo = null);
     _scrollToLatest();
+  }
+
+  Future<void> _loadNewPhotos({bool promptIfNeeded = false}) async {
+    try {
+      final fresh = await RecentPhotos.loadNew(promptIfNeeded: promptIfNeeded);
+      if (!mounted || fresh.isEmpty) return;
+      if (_newPhotos.length == 1 && _newPhotos.first.id == fresh.first.id) return;
+      setState(() => _newPhotos = fresh);
+    } catch (_) {}
+  }
+
+  Future<void> _dismissNewPhotos() async {
+    await RecentPhotos.markSeen(_newPhotos);
+    if (!mounted) return;
+    setState(() => _newPhotos = const []);
+  }
+
+  Future<void> _sendRecentPhoto(AssetEntity asset) async {
+    if (_uploading) return;
+    final file = await asset.file;
+    if (file == null || !mounted) return;
+    setState(() => _uploading = true);
+    final ok = await context.read<AppState>().sendImage(
+          widget.conversation.id,
+          file.path,
+          contentType: asset.mimeType,
+          replyTo: _replyTo == null ? null : MessageReply.fromMessage(_replyTo!),
+        );
+    if (!mounted) return;
+    setState(() {
+      _uploading = false;
+      if (ok) {
+        _replyTo = null;
+        _newPhotos = _newPhotos.where((p) => p.id != asset.id).toList();
+      }
+    });
+    if (ok) {
+      await RecentPhotos.markSeen([asset]);
+      _scrollToLatest();
+    } else {
+      final err = context.read<AppState>().error ?? 'couldn’t send photo';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    }
   }
 
   void _setReply(ChatMessage m) {
@@ -390,6 +460,19 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             if (typingUserIds.isNotEmpty) _typingBar(typingUserIds, app),
+            if (_newPhotos.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                  child: RecentPhotoTray(
+                    photos: _newPhotos,
+                    sending: _uploading,
+                    onSend: _sendRecentPhoto,
+                    onClose: _dismissNewPhotos,
+                  ),
+                ),
+              ),
             _inputBar(),
           ],
         ),

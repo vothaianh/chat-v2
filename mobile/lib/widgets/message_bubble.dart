@@ -136,29 +136,7 @@ class MessageBubble extends StatelessWidget {
               onTap: url.isEmpty ? null : () => _openFull(context, url),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  width: 220,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(
-                    width: 220,
-                    height: 160,
-                    color: AppTheme.surfaceHigh,
-                    alignment: Alignment.center,
-                    child: const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    width: 220,
-                    height: 120,
-                    color: AppTheme.surfaceHigh,
-                    alignment: Alignment.center,
-                    child: Icon(Icons.broken_image_outlined, color: onPrimary.withValues(alpha: 0.6)),
-                  ),
-                ),
+                child: _ScaledNetworkImage(url: url, color: onPrimary),
               ),
             ),
             if (message.caption != null && message.caption!.isNotEmpty)
@@ -174,19 +152,7 @@ class MessageBubble extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
-              child: Image.network(
-                message.media ?? '',
-                width: 210,
-                height: 148,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 210,
-                  height: 148,
-                  color: AppTheme.surfaceHigh,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image_outlined, color: AppTheme.textSecondary),
-                ),
-              ),
+              child: _ScaledNetworkImage(url: message.media ?? '', color: onPrimary),
             ),
             if (message.caption != null)
               Padding(
@@ -422,6 +388,80 @@ class MessageBubble extends StatelessWidget {
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
     String two(int n) => n.toString().padLeft(2, '0');
     return '${two(dt.hour)}:${two(dt.minute)}';
+  }
+}
+
+class _ScaledNetworkImage extends StatefulWidget {
+  final String url;
+  final Color color;
+  const _ScaledNetworkImage({required this.url, required this.color});
+
+  @override
+  State<_ScaledNetworkImage> createState() => _ScaledNetworkImageState();
+}
+
+class _ScaledNetworkImageState extends State<_ScaledNetworkImage> {
+  Size? _px;
+  ImageStream? _stream;
+  late final ImageStreamListener _listener;
+
+  @override
+  void initState() {
+    super.initState();
+    _listener = ImageStreamListener((info, _) {
+      if (!mounted) return;
+      setState(() => _px = Size(info.image.width.toDouble(), info.image.height.toDouble()));
+    });
+    _resolve();
+  }
+
+  void _resolve() {
+    if (widget.url.isEmpty) return;
+    _stream = CachedNetworkImageProvider(widget.url).resolve(const ImageConfiguration());
+    _stream!.addListener(_listener);
+  }
+
+  @override
+  void dispose() {
+    _stream?.removeListener(_listener);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxW = MediaQuery.of(context).size.width * 0.62;
+    if (_px == null) {
+      return Container(
+        width: maxW * 0.55,
+        height: 120,
+        color: AppTheme.surfaceHigh,
+        alignment: Alignment.center,
+        child: const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    var w = _px!.width * 0.10;
+    var h = _px!.height * 0.10;
+    if (w > maxW) {
+      h *= maxW / w;
+      w = maxW;
+    }
+    if (w < 72) {
+      h *= 72 / w;
+      w = 72;
+    }
+    return CachedNetworkImage(
+      imageUrl: widget.url,
+      width: w,
+      height: h,
+      fit: BoxFit.contain,
+      errorWidget: (_, __, ___) => Container(
+        width: w,
+        height: h,
+        color: AppTheme.surfaceHigh,
+        alignment: Alignment.center,
+        child: Icon(Icons.broken_image_outlined, color: widget.color.withValues(alpha: 0.6)),
+      ),
+    );
   }
 }
 

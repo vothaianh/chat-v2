@@ -80,6 +80,9 @@ PODS:
   - nanopb/encode (3.30910.0)
   - permission_handler_apple (9.4.8):
     - Flutter
+  - photo_manager (3.12.0):
+    - Flutter
+    - FlutterMacOS
   - PromisesObjC (2.4.1)
   - shared_preferences_foundation (0.0.1):
     - Flutter
@@ -99,6 +102,7 @@ DEPENDENCIES:
   - flutter_webrtc (from `.symlinks/plugins/flutter_webrtc/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - photo_manager (from `.symlinks/plugins/photo_manager/darwin`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
 
@@ -135,6 +139,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
+  photo_manager:
+    :path: ".symlinks/plugins/photo_manager/darwin"
   shared_preferences_foundation:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
   sqflite_darwin:
@@ -159,6 +165,7 @@ SPEC CHECKSUMS:
   image_picker_ios: 4f2f91b01abdb52842a8e277617df877e40f905b
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed
+  photo_manager: 3d7c9d321e7bfeb8630ddcbf02cd3f0ff82deaaf
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   shared_preferences_foundation: 5086985c1d43c5ba4d5e69a4e8083a389e2909e6
   sqflite_darwin: 5a7236e3b501866c1c9befc6771dfd73ffb8702d
