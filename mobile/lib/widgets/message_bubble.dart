@@ -72,7 +72,8 @@ class MessageBubble extends StatelessWidget {
               ),
               if (message.reactions.isNotEmpty)
                 Positioned(
-                  left: 2,
+                  left: mine ? 2 : null,
+                  right: mine ? null : 2,
                   bottom: -16,
                   child: _reactionChips(context),
                 ),
