@@ -63,6 +63,8 @@
 	<string>Volt uses the microphone for voice and video calls.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Volt uses the local network to connect audio and video calls.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Volt needs photo access so you can set a profile photo and send images in a conversation.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
